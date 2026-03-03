@@ -27,6 +27,10 @@ class ClientHandler implements Runnable {
         this.server = server;
     }
 
+//    public  String scelta() {
+//        return this.in.readLine();
+//    }
+
     @Override
     public void run() {
         try {
@@ -34,73 +38,91 @@ class ClientHandler implements Runnable {
             // 1. SALA D'ATTESA E INIZIO
             // ==========================================
             // Il giocatore aspetta che ci siano le condizioni per iniziare (es. fine timer)
-            server.attendiIlTuoTurno(out);
+            boolean keepGoing = true;
+            while (keepGoing) {
+                server.attendiIlTuoTurno(out);
+//                out.println("Vuoi uscire?");
+//                String line = "si";
+//                out.println(line);
+//                if (line.equalsIgnoreCase("si")) {
+//                    server.aPlayerLeft();
+//                    socket.close();
+//                    return;
+//                }
 
-            out.println("Benvenuto al Blackjack!");
+                out.println("Benvenuto al Blackjack!");
 
-            // Distribuisci 2 carte al giocatore
-            playerHand.add(deck.drawCard());
-            playerHand.add(deck.drawCard());
+                // Distribuisci 2 carte al giocatore
+                playerHand.add(deck.drawCard());
+                playerHand.add(deck.drawCard());
 
-            out.println("Le tue carte: " + playerHand + " | Totale: " + getHandValue(playerHand));
-            out.println("Carta visibile del dealer: " + dealerHand.get(0));
+                out.println("Le tue carte: " + playerHand + " | Totale: " + getHandValue(playerHand));
+                out.println("Carta visibile del dealer: " + dealerHand.get(0));
 
-            // ==========================================
-            // 2. CICLO DI GIOCO DEL CLIENT
-            // ==========================================
-            boolean accesso = true;
-            while (accesso) {
-                out.println("Digita 'carta' per pescare o 'sto' per fermarti:");
-                String comando = in.readLine();
-                
-                if (comando == null) break; // Evita crash se il client si disconnette di botto
+                // ==========================================
+                // 2. CICLO DI GIOCO DEL CLIENT
+                // ==========================================
+                boolean accesso = true;
+                while (accesso) {
+                    out.println("Digita 'carta' per pescare o 'sto' per fermarti:");
+                    String comando = in.readLine();
 
-                if (comando.equalsIgnoreCase("carta")) {
-                    Card carta = deck.drawCard();
-                    playerHand.add(carta);
-                    out.println("Hai pescato: " + carta);
-                    int total = getHandValue(playerHand);
-                    out.println("Totale mano: " + total);
-                    
-                    if (total > 21) {
-                        out.println("Hai sballato!");
-                        accesso = false; // Esce dal ciclo, ma NON fa return!
+                    if (comando == null) break; // Evita crash se il client si disconnette di botto
+
+                    if (comando.equalsIgnoreCase("carta")) {
+                        Card carta = deck.drawCard();
+                        playerHand.add(carta);
+                        out.println("Hai pescato: " + carta);
+                        int total = getHandValue(playerHand);
+                        out.println("Totale mano: " + total);
+
+                        if (total > 21) {
+                            out.println("Hai sballato!");
+                            accesso = false; // Esce dal ciclo, ma NON fa return!
+                        }
+                    } else if(comando.equalsIgnoreCase("sto")) {
+                        accesso = false;
+                    } else {
+                        out.println("Comando non valido!");
                     }
-                } else if(comando.equalsIgnoreCase("sto")) {
-                    accesso = false;
-                } else {
-                    out.println("Comando non valido!");
                 }
+
+                // ==========================================
+                // 3. FINE DELLE AZIONI, ATTESA DEL BANCO
+                // ==========================================
+                out.println("Hai terminato il turno. In attesa degli altri giocatori e del banco...");
+
+                // Avvisa il server che questo giocatore ha finito
+                server.fineTurnoGiocatore();
+
+                // Aspetta che il server giochi le carte del dealer e dichiari la fine della mano
+                server.attendiFineMano();
+
+                // ==========================================
+                // 4. CALCOLO E STAMPA DEI RISULTATI FINALI
+                // ==========================================
+                int playerTotal = getHandValue(playerHand);
+                int dealerTotal = getHandValue(dealerHand);
+                out.println("Mano finale del dealer: " + dealerHand + " | Totale: " + dealerTotal);
+
+                if (playerTotal > 21) {
+                    out.println("Hai perso (hai sballato).");
+                } else if (dealerTotal > 21 || playerTotal > dealerTotal) {
+                    out.println("Complimenti! Hai vinto!");
+                } else if (playerTotal < dealerTotal) {
+                    out.println("Hai perso! Dealer vince.");
+                } else {
+                    out.println("Pareggio!");
+                }
+                out.println("Vuoi uscire? si o no");
+//                String choice = in.readLine();
+                out.println("aaaaaa");
+//                if (choice.equalsIgnoreCase("si")) {
+//                    keepGoing = false;
+//                }
+//                out.println(keepGoing + " " + choice);
             }
 
-            // ==========================================
-            // 3. FINE DELLE AZIONI, ATTESA DEL BANCO
-            // ==========================================
-            out.println("Hai terminato il turno. In attesa degli altri giocatori e del banco...");
-            
-            // Avvisa il server che questo giocatore ha finito
-            server.fineTurnoGiocatore(); 
-            
-            // Aspetta che il server giochi le carte del dealer e dichiari la fine della mano
-            server.attendiFineMano(); 
-
-            // ==========================================
-            // 4. CALCOLO E STAMPA DEI RISULTATI FINALI
-            // ==========================================
-            int playerTotal = getHandValue(playerHand);
-            int dealerTotal = getHandValue(dealerHand);
-            out.println("Mano finale del dealer: " + dealerHand + " | Totale: " + dealerTotal);
-            
-            if (playerTotal > 21) {
-                out.println("Hai perso (hai sballato).");
-            } else if (dealerTotal > 21 || playerTotal > dealerTotal) {
-                out.println("Complimenti! Hai vinto!");
-            } else if (playerTotal < dealerTotal) {
-                out.println("Hai perso! Dealer vince.");
-            } else {
-                out.println("Pareggio!");
-            }
-            
             socket.close();
 
         } catch (IOException e) {
