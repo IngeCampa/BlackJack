@@ -1,4 +1,3 @@
-
 package it.unibs.pajc;
 
 import java.io.IOException;
@@ -20,12 +19,13 @@ public class Server {
 
     // Variabili per il flusso del server
     private boolean giocoInCorso = false;
-    private boolean carteDistribuite = false; // Novità: serve a bloccare i giocatori finché non scatta il timer
+    private boolean carteDistribuite = false;
+    private boolean timerAvviato = false; // NOVITÀ: Evita che partano 10 timer diversi
     private final int MAX_PLAYERS = 4;
-    private boolean handIsDone = false;
 
-    // Contatori per sincronizzare la fine della mano
-    private int giocatoriAttivi = 0;
+    // NOVITÀ: Separiamo chi aspetta da chi gioca, risolve i bug di conteggio!
+    private int giocatoriInAttesa = 0;
+    private int giocatoriInGioco = 0;
     private int giocatoriCheHannoFinito = 0;
 
     public Server() {
@@ -48,7 +48,6 @@ public class Server {
 
                 executor.execute(new ClientHandler(clientSocket, deck, sharedDealerHand, this));
                 connectedPlayers++;
-
             }
 
             System.out.println("Tavolo pieno. Non si accettano più connessioni.");
@@ -70,12 +69,8 @@ public class Server {
     // ==========================================
     // 2. LOGICA DEL TIMER E SALA D'ATTESA
     // ==========================================
-    private void avviaTimerInizioMano(int secondi, PrintWriter out) {
-        System.out.println("Primo giocatore entrato! La mano inizierà tra " + secondi + " secondi...");
-        //out.println("Vuoi uscire?");
-//        if(ClientHandler.scelta().equalsIgnoreCase("stop")) {
-//            System.out.println("Giocatori scelta stoppere");
-//        }
+    private void avviaTimerInizioMano(int secondi) {
+        System.out.println("Un giocatore si è seduto! La prossima mano inizierà tra " + secondi + " secondi...");
         new Thread(() -> {
             try {
                 Thread.sleep(secondi * 1000L);
@@ -88,77 +83,83 @@ public class Server {
     }
 
     public synchronized void attendiIlTuoTurno(PrintWriter out) {
-        // 1. Se il gioco è già iniziato, il "ritardatario" aspetta qui la prossima mano
+        // 1. Se c'è una partita in corso, il giocatore aspetta che finisca
         while (giocoInCorso) {
-            out.println("Mano in corso. Attendi la fine del turno per giocare...");
+            out.println("Mano in corso. Attendi la fine del turno degli altri per giocare...");
             try { wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
         }
 
-        // 2. Il giocatore si siede ufficialmente al tavolo per questa mano
-        giocatoriAttivi++;
+        // 2. Si unisce ai giocatori in attesa della nuova mano
+        giocatoriInAttesa++;
         out.println("Sei seduto al tavolo. Attendi la distribuzione delle carte...");
 
-        // 3. Aspetta che il timer finisca e il banco dia le carte
-        while (!carteDistribuite) {
-            System.out.println("Debug per il loop delle carte distribuite");
-            if (giocatoriAttivi > 0) {
-                avviaTimerInizioMano(5, out);
-            }
-
-            try { wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        // 3. Se il timer non è ancora partito, lo facciamo partire (una sola volta!)
+        if (!timerAvviato) {
+            timerAvviato = true;
+            avviaTimerInizioMano(5);
         }
 
-        out.println("Le carte sono state distribuite! Inizia il tuo turno.");
+        // 4. Blocca il giocatore finché il banco non dà le carte
+        while (!carteDistribuite) {
+            try { wait(); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        }
     }
 
     public synchronized void iniziaMano() {
-        handIsDone = false;
+        if (giocatoriInAttesa == 0) {
+            timerAvviato = false; // Se tutti sono usciti prima del timer, abortiamo
+            return;
+        }
+
         giocoInCorso = true;
 
-        // Reset delle variabili per la nuova partita
-        sharedDealerHand.clear();
+        // Trasferiamo i giocatori in attesa al tavolo di gioco
+        giocatoriInGioco = giocatoriInAttesa;
+        giocatoriInAttesa = 0;
+        giocatoriCheHannoFinito = 0;
+
         dealerPlayed = false;
-        giocatoriCheHannoFinito = 0; // Azzera chi ha finito
+        carteDistribuite = false;
+        timerAvviato = false; // Reset per la mano successiva
 
+        // IMPORTANTE: Se non resetti il mazzo, dopo qualche mano il gioco andrà in crash per carte finite!
+        // deck.reset(); // SCOMMENTA O AGGIUNGI UN METODO NELLA TUA CLASSE DECK PER RIMESCOLARE
+
+        sharedDealerHand.clear();
         sharedDealerHand.add(deck.drawCard());
         sharedDealerHand.add(deck.drawCard());
-        System.out.println("Banco pronto. Carte distribuite a " + giocatoriAttivi + " giocatori.");
+        System.out.println("Banco pronto. Carte distribuite a " + giocatoriInGioco + " giocatori.");
 
-        carteDistribuite = true; // Sblocca i giocatori fermi al punto 3 di attendiIlTuoTurno()
-        notifyAll();
-        System.out.println("oooo non dovrei andare di carte distribuite.");
-        if(giocatoriAttivi <= 0) {
-            System.out.println("oooo non dovrei andare di carte distribuite.");
-        }
+        carteDistribuite = true;
+        notifyAll(); // Sblocca i giocatori fermi in attendiIlTuoTurno()
     }
 
     // ==========================================
     // 3. LOGICA DI FINE TURNO E GIOCO DEL BANCO
     // ==========================================
 
-    // NOVITÀ: Il ClientHandler chiama questo metodo quando finisce le sue mosse
     public synchronized void fineTurnoGiocatore() {
         giocatoriCheHannoFinito++;
-        System.out.println("Un giocatore ha terminato il turno. (" + giocatoriCheHannoFinito + "/" + giocatoriAttivi + ")");
+        System.out.println("Un giocatore ha terminato il turno. (" + giocatoriCheHannoFinito + "/" + giocatoriInGioco + ")");
+        controllaFineMano();
+    }
 
-        // Controlliamo se è stato l'ultimo giocatore a finire
-        if (giocatoriCheHannoFinito == giocatoriAttivi) {
-            System.out.println("Tutti i giocatori attivi hanno terminato! Tocca al banco.");
-            playDealer();
+    private synchronized void controllaFineMano() {
+        // Se tutti i giocatori in gioco hanno finito, gioca il banco
+        if (giocoInCorso && giocatoriCheHannoFinito >= giocatoriInGioco) {
+            if (giocatoriInGioco > 0) {
+                System.out.println("Tutti i giocatori attivi hanno terminato! Tocca al banco.");
+                playDealer();
+            }
             terminaMano();
         }
     }
 
     public synchronized void terminaMano() {
         System.out.println("Fine della mano. Risveglio eventuali giocatori in attesa...");
-
-        // Reset totale per permettere l'inizio di una nuova mano
         giocoInCorso = false;
         carteDistribuite = false;
-        giocatoriAttivi = 0;
-        handIsDone = true;
-
-        notifyAll(); // Sveglia chi era bloccato in "sala d'attesa"
+        notifyAll(); // Sveglia chi aspetta in attendiFineMano() per vedere i risultati
     }
 
     public synchronized void playDealer() {
@@ -169,6 +170,31 @@ public class Server {
             }
             dealerPlayed = true;
             System.out.println("Turno del banco finito. Punteggio: " + getHandValue(sharedDealerHand));
+        }
+    }
+
+    // Blocca i giocatori che hanno finito, finché il dealer non gioca
+    public synchronized void attendiFineMano() {
+        while (giocoInCorso) {
+            try {
+                wait();
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    public synchronized void aPlayerLeft() {
+        // Se c'è una partita e il giocatore che se ne va ne fa parte, aggiorniamo il contatore
+        if (giocoInCorso) {
+            giocatoriInGioco--;
+            System.out.println("Un giocatore si è disconnesso a partita in corso. Giocatori rimasti in gioco: " + giocatoriInGioco);
+            controllaFineMano(); // Verifica se il suo abbandono permette di chiudere la mano
+        } else {
+            // Se si disconnette mentre aspetta il timer, si toglie dalla fila
+            if (giocatoriInAttesa > 0) {
+                giocatoriInAttesa--;
+            }
         }
     }
 
@@ -186,20 +212,5 @@ public class Server {
             aceCount--;
         }
         return total;
-    }
-
-    // Blocca i thread dei giocatori che hanno già finito, in attesa che il dealer giochi
-    public synchronized void attendiFineMano() {
-        while (giocoInCorso) {
-            try {
-                wait();
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        }
-    }
-
-    public void aPlayerLeft() {
-        giocatoriAttivi--;
     }
 }

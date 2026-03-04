@@ -27,28 +27,19 @@ class ClientHandler implements Runnable {
         this.server = server;
     }
 
-//    public  String scelta() {
-//        return this.in.readLine();
-//    }
-
     @Override
     public void run() {
         try {
-            // ==========================================
-            // 1. SALA D'ATTESA E INIZIO
-            // ==========================================
-            // Il giocatore aspetta che ci siano le condizioni per iniziare (es. fine timer)
             boolean keepGoing = true;
+
+            // ==========================================
+            // 1. CICLO PRINCIPALE DELLE PARTITE
+            // ==========================================
             while (keepGoing) {
+                // FONDAMENTALE: Pulisci la mano all'inizio di ogni nuova partita!
+                playerHand.clear();
+
                 server.attendiIlTuoTurno(out);
-//                out.println("Vuoi uscire?");
-//                String line = "si";
-//                out.println(line);
-//                if (line.equalsIgnoreCase("si")) {
-//                    server.aPlayerLeft();
-//                    socket.close();
-//                    return;
-//                }
 
                 out.println("Benvenuto al Blackjack!");
 
@@ -67,7 +58,12 @@ class ClientHandler implements Runnable {
                     out.println("Digita 'carta' per pescare o 'sto' per fermarti:");
                     String comando = in.readLine();
 
-                    if (comando == null) break; // Evita crash se il client si disconnette di botto
+                    // Se il client si disconnette di botto
+                    if (comando == null) {
+                        accesso = false;
+                        keepGoing = false;
+                        break;
+                    }
 
                     if (comando.equalsIgnoreCase("carta")) {
                         Card carta = deck.drawCard();
@@ -78,7 +74,7 @@ class ClientHandler implements Runnable {
 
                         if (total > 21) {
                             out.println("Hai sballato!");
-                            accesso = false; // Esce dal ciclo, ma NON fa return!
+                            accesso = false;
                         }
                     } else if(comando.equalsIgnoreCase("sto")) {
                         accesso = false;
@@ -87,15 +83,14 @@ class ClientHandler implements Runnable {
                     }
                 }
 
+                // Se il client è crashato durante il suo turno, usciamo dal loop principale
+                if (!keepGoing) break;
+
                 // ==========================================
                 // 3. FINE DELLE AZIONI, ATTESA DEL BANCO
                 // ==========================================
                 out.println("Hai terminato il turno. In attesa degli altri giocatori e del banco...");
-
-                // Avvisa il server che questo giocatore ha finito
                 server.fineTurnoGiocatore();
-
-                // Aspetta che il server giochi le carte del dealer e dichiari la fine della mano
                 server.attendiFineMano();
 
                 // ==========================================
@@ -114,19 +109,29 @@ class ClientHandler implements Runnable {
                 } else {
                     out.println("Pareggio!");
                 }
-                out.println("Vuoi uscire? si o no");
-//                String choice = in.readLine();
-                out.println("aaaaaa");
-//                if (choice.equalsIgnoreCase("si")) {
-//                    keepGoing = false;
-//                }
-//                out.println(keepGoing + " " + choice);
+
+                // ==========================================
+                // 5. SCELTA: RESTARE O USCIRE
+                // ==========================================
+                out.println("Vuoi restare al tavolo per un'altra partita? (si/no)");
+                String choice = in.readLine();
+
+                // Se l'utente chiude il terminale (null) o digita qualcosa diverso da "si"
+                if (choice == null || !choice.equalsIgnoreCase("si")) {
+                    keepGoing = false; // Ferma il loop
+                    out.println("Grazie per aver giocato! Arrivederci.");
+                } else {
+                    out.println("Ottima scelta! Preparo il prossimo round...\n---");
+                }
             }
 
+            // Una volta fuori dal loop, il giocatore se n'è andato.
+            // Avvisiamo il server e chiudiamo la socket.
+            server.aPlayerLeft();
             socket.close();
 
         } catch (IOException e) {
-            e.printStackTrace();
+            System.err.println("Errore di comunicazione: " + e.getMessage());
         }
     }
 
@@ -138,7 +143,7 @@ class ClientHandler implements Runnable {
             if (c.rank.equals("A")) assi++;
         }
         while (tot > 21 && assi > 0) {
-            tot -= 10; // Asso vale 1 invece di 11
+            tot -= 10;
             assi--;
         }
         return tot;
