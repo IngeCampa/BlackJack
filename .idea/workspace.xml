@@ -5,13 +5,9 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="e97f8d8c-359a-45c4-99d5-fbd0f61e2fc5" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/.idea/.gitignore" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/.name" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/misc.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/modules.xml" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/it/unibs/pajc/Card.class" beforeDir="false" afterPath="$PROJECT_DIR$/bin/it/unibs/pajc/Card.class" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/it/unibs/pajc/ClientHandler.class" beforeDir="false" afterPath="$PROJECT_DIR$/bin/it/unibs/pajc/ClientHandler.class" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/bin/it/unibs/pajc/Server.class" beforeDir="false" afterPath="$PROJECT_DIR$/bin/it/unibs/pajc/Server.class" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/it/unibs/pajc/Card.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/it/unibs/pajc/Card.java" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/src/it/unibs/pajc/Client.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/it/unibs/pajc/Client.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/it/unibs/pajc/ClientHandler.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/it/unibs/pajc/ClientHandler.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/it/unibs/pajc/Deck.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/it/unibs/pajc/Deck.java" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/src/it/unibs/pajc/Server.java" beforeDir="false" afterPath="$PROJECT_DIR$/src/it/unibs/pajc/Server.java" afterDir="false" />
