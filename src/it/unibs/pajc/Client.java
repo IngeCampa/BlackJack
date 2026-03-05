@@ -3,74 +3,113 @@ package it.unibs.pajc;
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.Socket;
 
 /**
- * Classe Client per il gioco del Blackjack.
- * Utilizza un'architettura multithread per gestire in modo asincrono
- * la ricezione dei messaggi dal server e l'invio dei comandi dell'utente.
+ * Classe Client aggiornata (MVC-Style).
+ * Gestisce la connessione di rete e traduce i GameState ricevuti dal Server
+ * in un'interfaccia visiva (in questo caso, la Console).
  */
 public class Client {
 
-    // ==========================================
-    // COSTANTI DI CONNESSIONE
-    // ==========================================
     private static final String SERVER = "localhost";
     private static final int PORT = 12345;
 
     public static void main(String[] args) {
+        new Client().start();
+    }
 
-        // ==========================================
-        // INIZIALIZZAZIONE CONNESSIONE E STREAM
-        // ==========================================
-        // Il costrutto try-with-resources garantisce la chiusura automatica
-        // del socket e degli stream di I/O al termine dell'esecuzione o in caso di errore.
-        try (
-                Socket socket = new Socket(SERVER, PORT);
-                BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-                PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
-                BufferedReader userInput = new BufferedReader(new InputStreamReader(System.in))
-        ) {
+    public void start() {
+        try (Socket socket = new Socket(SERVER, PORT)) {
             System.out.println("Connesso al server di Blackjack!");
 
             // ==========================================
-            // THREAD 1: MOTORE DI ASCOLTO (Background)
+            // 1. SETUP DEGLI STREAM A OGGETTI (La "Cassetta della Posta")
             // ==========================================
-            // Questo thread separato si occupa esclusivamente di ascoltare
-            // ciò che il server invia, stampandolo immediatamente a schermo.
-            // In questo modo, l'interfaccia non si blocca in attesa della tastiera.
+            // REGOLA D'ORO JAVA: Creare SEMPRE prima l'ObjectOutputStream dell'ObjectInputStream,
+            // altrimenti Client e Server si bloccano a vicenda aspettando gli header.
+            ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+            ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
+
+            // Per leggere l'input della tastiera
+            BufferedReader userInput = new BufferedReader(new InputStreamReader(System.in));
+
+            // ==========================================
+            // 2. IL NETWORK THREAD (L'Observer)
+            // ==========================================
             Thread listener = new Thread(() -> {
                 try {
-                    String serverMessage;
+                    Object messaggioDalServer;
 
-                    // Continua a leggere finché il server non chiude la connessione
-                    while ((serverMessage = in.readLine()) != null) {
-                        System.out.println(serverMessage);
+                    // Continua ad ascoltare finché la connessione è aperta
+                    while ((messaggioDalServer = in.readObject()) != null) {
+
+                        // Il Server ci ha mandato la "Cartolina" con i dati aggiornati!
+                        if (messaggioDalServer instanceof GameState) {
+                            GameState state = (GameState) messaggioDalServer;
+
+                            // Chiamiamo la Vista per aggiornare lo schermo
+                            aggiornaSchermo(state);
+                        }
+                        // Il Server ci ha mandato un semplice messaggio di testo
+                        else if (messaggioDalServer instanceof String) {
+                            System.out.println("\nSERVER: " + messaggioDalServer);
+                        }
                     }
-                } catch (IOException e) {
+                } catch (IOException | ClassNotFoundException e) {
                     System.out.println("\nDisconnesso dal server.");
-                    System.exit(0); // Chiude l'intero programma se il server cade o si scollega
+                    System.exit(0);
                 }
             });
-
-            // Avvia il motore di ascolto
             listener.start();
 
             // ==========================================
-            // THREAD 2: LETTURA DELLA TASTIERA (Main Thread)
+            // 3. IL CONTROLLER (Legge la tastiera e invia al Server)
             // ==========================================
-            // Il thread principale (quello in cui gira il main) si occupa
-            // esclusivamente di leggere ciò che scrivi e inviarlo al server.
-            String userMessage;
-
-            // Il ciclo si blocca su readLine() aspettando il tuo 'Invio'
-            while ((userMessage = userInput.readLine()) != null) {
-                out.println(userMessage);
+            String comandoUtente;
+            while ((comandoUtente = userInput.readLine()) != null) {
+                // Inviamo il comando come oggetto String al Server
+                out.writeObject(comandoUtente);
+                out.flush(); // Assicura che il messaggio parta immediatamente
             }
 
         } catch (IOException e) {
             System.err.println("Impossibile connettersi al server: " + e.getMessage());
         }
+    }
+
+    // ==========================================
+    // 4. LA VIEW (L'unica parte che tocca lo schermo)
+    // ==========================================
+    /**
+     * Questo metodo è l'unica parte del codice che sa di essere in una Console.
+     * Se un domani farai una GUI JavaFX, cambierai solo questo metodo!
+     */
+    private void aggiornaSchermo(GameState state) {
+        System.out.println("\n======================================");
+
+        if (state.getMessaggioAvviso() != null && !state.getMessaggioAvviso().isEmpty()) {
+            System.out.println("📢 " + state.getMessaggioAvviso());
+        }
+
+        System.out.println("\n🏦 BANCO: " + state.getCarteDealer());
+        if (state.getPunteggioDealer() > 0) {
+            System.out.println("   Punteggio: " + state.getPunteggioDealer());
+        }
+
+        System.out.println("\n👤 LE TUE MANI:");
+        List<List<String>> mani = state.getManiGiocatore();
+
+        // Cicla attraverso tutte le mani (Se non hai splittato, sarà solo 1)
+        for (int i = 0; i < mani.size(); i++) {
+            String freccia = (i == state.getIndiceManoAttuale() && !state.isTurnoFinito() && !state.isFinePartita()) ? "👉 " : "   ";
+            System.out.println(freccia + "Mano " + (i+1) + ": " + mani.get(i));
+            System.out.println("      Punteggio: " + state.getPunteggiMani().get(i) + " | Scommessa: " + state.getScommesseMani().get(i));
+        }
+
+        System.out.println("\n💰 Fiches totali: " + state.getFiches());
+        System.out.println("======================================\n");
     }
 }

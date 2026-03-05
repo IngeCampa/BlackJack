@@ -1,388 +1,258 @@
 package it.unibs.pajc;
 
-import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.PrintWriter;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.util.ArrayList;
 import java.util.List;
 
-class ClientHandler implements Runnable {
+public class ClientHandler implements Runnable {
 
-    // Variabili di rete e di gioco
-    private Socket socket;
-    private Deck deck;
-    private BufferedReader in;
-    private PrintWriter out;
-    private List<Card> dealerHand;
-    private Server server;
+    private final Socket socket;
+    private final BlackjackRoom room;
+    private ObjectOutputStream out;
+    private ObjectInputStream in;
 
-    // Il portafoglio del giocatore
     private int fiches = 1000;
+    private List<ManoGiocatore> mani;
 
-    /**
-     * Classe interna per gestire le mani multiple.
-     * Necessaria per implementare la meccanica dello "Split".
-     */
+    // La tua classe interna per gestire le mani multiple!
     private class ManoGiocatore {
         List<Card> carte = new ArrayList<>();
         int scommessa;
         boolean sballata = false;
         boolean blackjack = false;
-
-        public ManoGiocatore(int scommessa) {
-            this.scommessa = scommessa;
-        }
+        public ManoGiocatore(int scommessa) { this.scommessa = scommessa; }
     }
 
-    // Costruttore
-    public ClientHandler(Socket socket, Deck deck, List<Card> sharedDealerHand, Server server) throws IOException {
+    public ClientHandler(Socket socket, BlackjackRoom room) {
         this.socket = socket;
-        this.deck = deck;
-        this.in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
-        this.out = new PrintWriter(socket.getOutputStream(), true);
-        this.dealerHand = sharedDealerHand;
-        this.server = server;
+        this.room = room;
+        this.mani = new ArrayList<>();
     }
 
     @Override
     public void run() {
         try {
+            out = new ObjectOutputStream(socket.getOutputStream());
+            in = new ObjectInputStream(socket.getInputStream());
             boolean keepGoing = true;
 
-            // ==========================================
-            // CICLO PRINCIPALE DELLE PARTITE
-            // ==========================================
             while (keepGoing) {
-                // Sincronizza il giocatore con il tavolo
-                server.attendiIlTuoTurno(out);
+                out.writeObject("Benvenuto! Attendi il tuo turno al tavolo...");
+                room.attendiIlTuoTurno();
 
                 // ==========================================
-                // FASE DI SCOMMESSA (CON TIMEOUT 30 SECONDI)
+                // 1. FASE SCOMMESSA (Timeout 30s)
                 // ==========================================
-                out.println("Hai " + fiches + " fiches. Quanto vuoi scommettere? Hai 30 secondi. (digita l'importo):");
                 int scommessaIniziale = 0;
-
+                out.writeObject("Hai " + fiches + " fiches. Quanto scommetti? (Hai 30 secondi):");
                 try {
-                    // Imposta il timer di 30 secondi per la socket
                     socket.setSoTimeout(30000);
                     while (true) {
-                        String input = in.readLine();
-                        if (input == null) {
-                            keepGoing = false;
-                            break;
-                        }
-
+                        String input = (String) in.readObject();
                         try {
                             scommessaIniziale = Integer.parseInt(input.trim());
                             if (scommessaIniziale > 0 && scommessaIniziale <= fiches) {
                                 fiches -= scommessaIniziale;
-                                out.println("Hai scommesso " + scommessaIniziale + " fiches. Fiches rimanenti: " + fiches);
                                 break;
                             } else {
-                                out.println("Importo non valido. Hai " + fiches + " fiches. Riprova:");
+                                out.writeObject("Importo non valido. Riprova:");
                             }
                         } catch (NumberFormatException e) {
-                            out.println("Per favore, digita un numero intero valido:");
+                            out.writeObject("Inserisci un numero valido:");
                         }
                     }
                 } catch (SocketTimeoutException e) {
-                    // Se il timer scade, forza una scommessa automatica
-                    out.println("\nTempo scaduto! Il croupier piazza la scommessa per te.");
-                    scommessaIniziale = (fiches < 100) ? fiches : 100; // All-in se ha meno di 100
+                    scommessaIniziale = (fiches < 100) ? fiches : 100;
                     fiches -= scommessaIniziale;
-                    out.println("Hai scommesso automaticamente " + scommessaIniziale + " fiches.");
+                    out.writeObject("⏳ Tempo scaduto! Il croupier piazza " + scommessaIniziale + " fiches per te.");
                 } finally {
-                    // Ripristina il timeout a infinito per il resto della partita
-                    try { socket.setSoTimeout(0); } catch (IOException e) { }
+                    socket.setSoTimeout(0); // Ripristina il timeout
                 }
 
-                // Se il client si è disconnesso durante la scommessa, esci dal ciclo principale
-                if (!keepGoing) break;
-
-                out.println("Benvenuto al Blackjack!");
-
                 // ==========================================
-                // DISTRIBUZIONE CARTE INIZIALI
+                // 2. DISTRIBUZIONE CARTE
                 // ==========================================
-                List<ManoGiocatore> mani = new ArrayList<>();
+                mani.clear();
                 ManoGiocatore manoPrincipale = new ManoGiocatore(scommessaIniziale);
-                manoPrincipale.carte.add(deck.drawCard());
-                manoPrincipale.carte.add(deck.drawCard());
+                manoPrincipale.carte.add(room.getDeck().drawCard());
+                manoPrincipale.carte.add(room.getDeck().drawCard());
                 mani.add(manoPrincipale);
 
-                out.println("\nCarta visibile del dealer: " + dealerHand.get(0));
+                boolean dealerHaBlackjack = (room.getDealerScore() == 21);
 
                 // ==========================================
-                // L'ASSICURAZIONE (Se il dealer mostra un Asso)
+                // 3. ASSICURAZIONE
                 // ==========================================
-                int assicurazione = 0;
-                boolean dealerHaBlackjack = (getHandValue(dealerHand) == 21);
+                if (room.getDealerHand().get(0).rank.equals("A")) {
+                    int costoAssic = scommessaIniziale / 2;
+                    inviaStatoAlClient("⚠️ Il banco ha un Asso! Vuoi l'assicurazione per " + costoAssic + " fiches? (si/no)", false, false, 0);
 
-                if (dealerHand.get(0).rank.equals("A")) {
-                    int costoAssicurazione = scommessaIniziale / 2;
-                    out.println("⚠️ Il banco ha un Asso! Vuoi comprare l'assicurazione per " + costoAssicurazione + " fiches? (si/no)");
-                    String risp = in.readLine();
-
-                    if (risp != null && risp.equalsIgnoreCase("si") && fiches >= costoAssicurazione) {
-                        assicurazione = costoAssicurazione;
-                        fiches -= assicurazione;
-                        out.println("Assicurazione acquistata. Fiches rimanenti: " + fiches);
-                    } else if (risp != null && risp.equalsIgnoreCase("si")) {
-                        out.println("Non hai abbastanza fiches per l'assicurazione!");
-                    }
-
-                    out.println("Il croupier controlla la carta coperta...");
-
-                    // Risoluzione immediata dell'assicurazione
-                    if (dealerHaBlackjack) {
-                        out.println("🚨 È UN BLACKJACK NATURALE DEL BANCO! 🚨");
-                        if (assicurazione > 0) {
-                            out.println("🛡️ L'assicurazione ti salva! (Pagamento 2:1)");
-                            fiches += (assicurazione * 3); // Restituisce il costo + paga 2:1
-                        }
-                    } else {
-                        out.println("Nessun Blackjack per il banco. Il gioco continua.");
-                        if (assicurazione > 0) {
-                            out.println("❌ Perdi i soldi dell'assicurazione.");
-                            assicurazione = 0; // Soldi persi
+                    String risp = (String) in.readObject();
+                    if (risp != null && risp.equalsIgnoreCase("si") && fiches >= costoAssic) {
+                        fiches -= costoAssic;
+                        if (dealerHaBlackjack) {
+                            fiches += (costoAssic * 3);
+                            out.writeObject("🛡️ L'assicurazione ti salva! Pagamento 2:1.");
+                        } else {
+                            out.writeObject("❌ Nessun Blackjack per il banco. Assicurazione persa.");
                         }
                     }
                 }
 
-                // ==========================================
-                // CONTROLLO BLACKJACK NATURALE DEL GIOCATORE
-                // ==========================================
-                if (getHandValue(manoPrincipale.carte) == 21) {
+                if (room.getHandValue(manoPrincipale.carte) == 21) {
                     manoPrincipale.blackjack = true;
-                    out.println("🔥 BLACKJACK NATURALE! 21! Le tue carte: " + manoPrincipale.carte + " 🔥");
                 }
 
                 // ==========================================
-                // CICLO DI GIOCO (Richiesta Carte, Split, Raddoppio)
+                // 4. CICLO DI GIOCO (Split, Raddoppio, Timeout 60s)
                 // ==========================================
-                // Se il banco ha Blackjack, il turno del giocatore viene saltato
                 if (!dealerHaBlackjack) {
-                    // Ciclo for sulle mani (possono aumentare se si usa lo Split)
                     for (int i = 0; i < mani.size(); i++) {
                         ManoGiocatore manoAttuale = mani.get(i);
-
-                        // Salta se ha già Blackjack
                         if (manoAttuale.blackjack) continue;
 
                         boolean accesso = true;
                         while (accesso) {
-                            out.println("\n[Mano " + (i + 1) + "/" + mani.size() + "] Carte: " + manoAttuale.carte + " | Totale: " + getHandValue(manoAttuale.carte));
-
-                            // Valutazione opzioni disponibili
                             boolean canDouble = (manoAttuale.carte.size() == 2 && fiches >= manoAttuale.scommessa);
-
-                            // Limite massimo di 4 mani per lo Split (regola standard da casinò)
                             boolean canSplit = (canDouble && manoAttuale.carte.get(0).rank.equals(manoAttuale.carte.get(1).rank) && mani.size() < 4);
 
-                            // Composizione del menu dinamico
-                            String opzioni = "Digita 'carta', 'sto'";
+                            String opzioni = "Mossa (Mano " + (i+1) + "): 'carta', 'sto'";
                             if (canDouble) opzioni += ", 'raddoppio'";
                             if (canSplit) opzioni += ", 'split'";
-                            opzioni += ":";
 
-                            out.println(opzioni);
-
+                            inviaStatoAlClient(opzioni, false, false, i);
                             String comando = null;
 
-                            // ==========================================
-                            // TIMER AFK (Away From Keyboard)
-                            // Se il giocatore non fa scelte per 60s, forza lo "Sto"
-                            // ==========================================
                             try {
-                                socket.setSoTimeout(60000); // 60 secondi di attesa
-                                comando = in.readLine();
+                                socket.setSoTimeout(60000);
+                                comando = (String) in.readObject();
                             } catch (SocketTimeoutException e) {
-                                out.println("\n⏳ Tempo scaduto! Il croupier ti impone di fermarti (Sto automatico).");
-                                accesso = false; // Forza la fine del turno
-                            } finally {
-                                try { socket.setSoTimeout(0); } catch (IOException e) { } // Ripristina timeout
-                            }
-
-                            // Disconnessione
-                            if (comando == null && accesso) {
+                                inviaStatoAlClient("⏳ Tempo scaduto! Sto automatico.", true, false, i);
                                 accesso = false;
-                                keepGoing = false;
-                                break;
+                            } finally {
+                                socket.setSoTimeout(0);
                             }
 
-                            // GESTIONE COMANDI
-                            if (accesso) {
+                            if (comando != null && accesso) {
                                 if (comando.equalsIgnoreCase("carta")) {
-                                    Card carta = deck.drawCard();
-                                    manoAttuale.carte.add(carta);
-
-                                    int totaleDopoPescata = getHandValue(manoAttuale.carte);
-                                    if (totaleDopoPescata > 21) {
-                                        out.println("Hai pescato: " + carta + " | Totale: " + totaleDopoPescata + " -> Hai sballato!");
-                                        manoAttuale.sballata = true;
-                                        accesso = false; // Fine turno per sballo
-                                    } else if (totaleDopoPescata == 21) {
-                                        out.println("Hai pescato: " + carta + " | Hai raggiunto 21 perfetto! Ti fermi in automatico.");
-                                        accesso = false; // Fine turno automatico
-                                    } else {
-                                        out.println("Hai pescato: " + carta);
+                                    manoAttuale.carte.add(room.getDeck().drawCard());
+                                    if (room.getHandValue(manoAttuale.carte) >= 21) {
+                                        manoAttuale.sballata = (room.getHandValue(manoAttuale.carte) > 21);
+                                        accesso = false;
                                     }
-
                                 } else if (comando.equalsIgnoreCase("sto")) {
-                                    accesso = false; // Fine turno volontaria
-
+                                    accesso = false;
                                 } else if (comando.equalsIgnoreCase("raddoppio") && canDouble) {
                                     fiches -= manoAttuale.scommessa;
-                                    manoAttuale.scommessa *= 2; // Raddoppia la puntata
-                                    Card carta = deck.drawCard();
-                                    manoAttuale.carte.add(carta); // Una sola carta pescata
-
-                                    out.println("Hai RADDOPPIATO! Hai pescato: " + carta + " | Totale finale: " + getHandValue(manoAttuale.carte));
-                                    if (getHandValue(manoAttuale.carte) > 21) manoAttuale.sballata = true;
-                                    accesso = false; // Il raddoppio forza la fine del turno
-
+                                    manoAttuale.scommessa *= 2;
+                                    manoAttuale.carte.add(room.getDeck().drawCard());
+                                    if (room.getHandValue(manoAttuale.carte) > 21) manoAttuale.sballata = true;
+                                    accesso = false;
                                 } else if (comando.equalsIgnoreCase("split") && canSplit) {
                                     fiches -= manoAttuale.scommessa;
-
-                                    // Crea la nuova mano rubando una carta dalla mano attuale
                                     ManoGiocatore nuovaMano = new ManoGiocatore(manoAttuale.scommessa);
                                     nuovaMano.carte.add(manoAttuale.carte.remove(1));
 
-                                    // Distribuisce una nuova carta a entrambe le mani
-                                    manoAttuale.carte.add(deck.drawCard());
-                                    nuovaMano.carte.add(deck.drawCard());
-
+                                    manoAttuale.carte.add(room.getDeck().drawCard());
+                                    nuovaMano.carte.add(room.getDeck().drawCard());
                                     mani.add(nuovaMano);
-                                    out.println("Mano divisa! Continuiamo con la prima mano...");
-
+                                    out.writeObject("Mano divisa con successo!");
                                 } else {
-                                    out.println("Comando non valido o non consentito in questo momento.");
+                                    out.writeObject("Comando non valido.");
                                 }
                             }
                         }
-                        if (!keepGoing) break;
                     }
-                } else {
-                    out.println("\nIl turno dei giocatori viene saltato per via del Blackjack del banco.");
                 }
 
-                if (!keepGoing) break;
+                // ==========================================
+                // 5. ATTESA BANCO E PAGAMENTI
+                // ==========================================
+                inviaStatoAlClient("In attesa del banco e degli altri giocatori...", true, false, 0);
+                room.fineTurnoGiocatore();
+                room.attendiFineMano();
 
-                // ==========================================
-                // ATTESA DEL BANCO E FINE MANO
-                // ==========================================
-                out.println("\nHai terminato i tuoi turni. In attesa del banco...");
-                server.fineTurnoGiocatore(); // Notifica il server che ha finito
-                server.attendiFineMano();    // Attende che anche gli altri (e il banco) finiscano
+                int dealerTotal = room.getDealerScore();
+                StringBuilder risultati = new StringBuilder("RISULTATI:\n");
 
-                // ==========================================
-                // CALCOLO E STAMPA DEI RISULTATI FINALI
-                // ==========================================
-                int dealerTotal = getHandValue(dealerHand);
-                out.println("\n--- RISULTATI FINALI ---");
-                out.println("Mano finale del dealer: " + dealerHand + " | Totale: " + dealerTotal);
-
-                // Cicla su tutte le mani giocate per calcolare le vincite
                 for (int i = 0; i < mani.size(); i++) {
                     ManoGiocatore m = mani.get(i);
-                    int playerTotal = getHandValue(m.carte);
-                    out.print("Mano " + (i + 1) + " (" + playerTotal + "): ");
+                    int playerTotal = room.getHandValue(m.carte);
+                    risultati.append("- Mano ").append(i+1).append(": ");
 
                     if (m.sballata) {
-                        out.println("Persa! (Hai sballato)");
-                    } else if (m.blackjack && dealerTotal != 21) {
-                        // Paga 3:2 per Blackjack Naturale
-                        out.println("Vinta con Blackjack Naturale! (+ " + (m.scommessa * 2.5) + ")");
-                        fiches += (m.scommessa + (m.scommessa * 1.5));
+                        risultati.append("Persa (Sballato).\n");
+                    } else if (m.blackjack && !dealerHaBlackjack) {
+                        risultati.append("Vinta! (Blackjack Naturale!)\n");
+                        fiches += (m.scommessa * 2.5);
                     } else if (dealerTotal > 21 || playerTotal > dealerTotal) {
-                        // Paga 1:1 per vittoria normale
-                        out.println("Vinta! (+ " + (m.scommessa * 2) + ")");
+                        risultati.append("Vinta!\n");
                         fiches += (m.scommessa * 2);
                     } else if (playerTotal < dealerTotal) {
-                        out.println("Persa! (Dealer vince)");
+                        risultati.append("Persa.\n");
                     } else {
-                        // Restituisce la puntata in caso di pareggio
-                        out.println("Pareggio! (+ " + m.scommessa + ")");
+                        risultati.append("Pareggio.\n");
                         fiches += m.scommessa;
                     }
                 }
 
-                out.println("\nIl tuo saldo attuale è di: " + fiches + " fiches.");
+                inviaStatoAlClient(risultati.toString(), true, true, 0);
 
-                // ==========================================
-                // CONTROLLO BANCAROTTA E SCELTA
-                // ==========================================
                 if (fiches <= 0) {
-                    out.println("Hai esaurito le tue fiches! Game Over.");
+                    out.writeObject("Game Over. Fiches esaurite.");
                     keepGoing = false;
-                    server.sceltaEffettuata();
-                    break;
-                }
-
-                out.println("Vuoi restare al tavolo per un'altra partita? (si/no)");
-                String choice = in.readLine();
-
-                if (choice == null || !choice.equalsIgnoreCase("si")) {
-                    keepGoing = false;
-                    out.println("Grazie per aver giocato! Arrivederci.");
-                    server.sceltaEffettuata();
                 } else {
-                    out.println("Ottima scelta! Preparo il prossimo round...\n---");
-                    server.sceltaEffettuata();
+                    out.writeObject("Vuoi restare al tavolo? (si/no)");
+                    String choice = (String) in.readObject();
+                    if (choice == null || !choice.equalsIgnoreCase("si")) keepGoing = false;
                 }
+                room.sceltaEffettuata();
             }
-
-        } catch (IOException e) {
-            // Se un client chiude bruscamente la connessione, il codice salta qui
-            System.err.println("Un giocatore si è disconnesso bruscamente: " + e.getMessage());
-
+        } catch (Exception e) {
+            System.out.println("Giocatore disconnesso.");
         } finally {
-            // ==========================================
-            // FIX: SCUDO ANTI-RAGEQUIT (Blocco Finally)
-            // ==========================================
-            // Questo blocco viene eseguito SEMPRE alla fine del thread,
-            // garantendo che le risorse del Server vengano sbloccate.
-            System.out.println("Esecuzione pulizia risorse per il giocatore...");
-
-            // 1. Sblocca la fine della mano se il giocatore era in fase di scelta
-            server.sceltaEffettuata();
-
-            // 2. Decrementa i contatori dei giocatori in gioco/attesa
-            server.aPlayerLeft();
-
-            // 3. Chiude in sicurezza il socket
-            try {
-                if (socket != null && !socket.isClosed()) {
-                    socket.close();
-                }
-            } catch (IOException ex) {
-                System.err.println("Errore durante la chiusura del socket.");
-            }
+            room.sceltaEffettuata();
+            room.aPlayerLeft();
+            try { socket.close(); } catch (IOException ex) { }
         }
     }
 
-    /**
-     * Calcola il valore totale di una mano secondo le regole del Blackjack.
-     * Gestisce dinamicamente il valore dell'Asso (1 o 11).
-     *
-     * @param mano La lista di carte da valutare.
-     * @return Il punteggio ottimale della mano.
-     */
-    private int getHandValue(List<Card> mano) {
-        int tot = 0;
-        int assi = 0;
-        for (Card c : mano) {
-            tot += c.getValue();
-            if (c.rank.equals("A")) assi++;
+    private void inviaStatoAlClient(String messaggio, boolean turnoFinito, boolean finePartita, int manoAttualeIndex) throws IOException {
+        List<String> nomiBanco = new ArrayList<>();
+        int punteggioVisibileBanco = 0;
+
+        // Anti-Cheat: Copri la seconda carta del banco se si sta ancora giocando
+        List<Card> carteRealiBanco = room.getDealerHand();
+        if (!carteRealiBanco.isEmpty()) {
+            nomiBanco.add(carteRealiBanco.get(0).toString());
+            punteggioVisibileBanco = carteRealiBanco.get(0).getValue();
+            if (!finePartita && carteRealiBanco.size() > 1) {
+                nomiBanco.add("[CARTA COPERTA]");
+            } else {
+                for (int i = 1; i < carteRealiBanco.size(); i++) nomiBanco.add(carteRealiBanco.get(i).toString());
+                punteggioVisibileBanco = room.getDealerScore();
+            }
         }
-        // Trasforma il valore dell'Asso da 11 a 1 per non sballare
-        while (tot > 21 && assi > 0) {
-            tot -= 10;
-            assi--;
+
+        // Impacchetta tutte le mani del giocatore
+        List<List<String>> stringheMani = new ArrayList<>();
+        List<Integer> punteggiMani = new ArrayList<>();
+        List<Integer> scommesseMani = new ArrayList<>();
+
+        for (ManoGiocatore m : mani) {
+            List<String> carteStr = new ArrayList<>();
+            for (Card c : m.carte) carteStr.add(c.toString());
+            stringheMani.add(carteStr);
+            punteggiMani.add(room.getHandValue(m.carte));
+            scommesseMani.add(m.scommessa);
         }
-        return tot;
+
+        GameState state = new GameState(nomiBanco, punteggioVisibileBanco, stringheMani, punteggiMani, scommesseMani, manoAttualeIndex, fiches, messaggio, turnoFinito, finePartita);
+        out.writeObject(state);
+        out.reset();
     }
 }
