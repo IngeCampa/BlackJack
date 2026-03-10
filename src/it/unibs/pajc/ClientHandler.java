@@ -1,122 +1,167 @@
 package it.unibs.pajc;
 
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 public class ClientHandler implements Runnable {
-
     private final Socket socket;
-    private final BlackjackRoom room;
+    private final ServerModel room;
     private ObjectOutputStream out;
     private ObjectInputStream in;
 
     private int fiches = 1000;
-    private List<ManoGiocatore> mani;
+    private boolean inGioco = false;
+    private String nickname;
+    private int secondiAttesaPersonale = 0;
+    private Thread timerThread;
 
-    // La tua classe interna per gestire le mani multiple!
-    private class ManoGiocatore {
+    private GameState.FaseGioco faseAttuale = GameState.FaseGioco.ATTESA;
+    private String msgAttuale = "";
+    private boolean fineTurnoAttuale = false;
+    private boolean finePartitaAttuale = false;
+    private int manoIdxAttuale = 0;
+
+    class Mano {
         List<Card> carte = new ArrayList<>();
-        int scommessa;
-        boolean sballata = false;
-        boolean blackjack = false;
-        public ManoGiocatore(int scommessa) { this.scommessa = scommessa; }
+        int scommessa; boolean sballata = false; boolean blackjack = false;
+        Mano(int s) { scommessa = s; }
+    }
+    private List<Mano> mani = new ArrayList<>();
+
+    public ClientHandler(Socket s, ServerModel r) { this.socket = s; this.room = r; }
+
+    public String getNickname() { return nickname; }
+    public List<List<String>> getManiInStringhe() {
+        List<List<String>> maniStr = new ArrayList<>();
+        if (!inGioco) return maniStr;
+        for (Mano m : mani) {
+            List<String> cStr = new ArrayList<>();
+            for (Card c : m.carte) cStr.add(c.toString());
+            maniStr.add(cStr);
+        }
+        return maniStr;
     }
 
-    public ClientHandler(Socket socket, BlackjackRoom room) {
-        this.socket = socket;
-        this.room = room;
-        this.mani = new ArrayList<>();
+    public synchronized void forzaAggiornamentoVisivo() {
+        try { inviaStato(faseAttuale, msgAttuale, fineTurnoAttuale, finePartitaAttuale, manoIdxAttuale); }
+        catch (IOException e) { }
     }
+
+    // === METODI HELPER PER IL TIMER ===
+    private void avviaTimer(int secondi) {
+        fermaTimer(); // Pulisce eventuali timer precedenti
+        timerThread = new Thread(() -> {
+            try {
+                for (int i = secondi; i > 0; i--) {
+                    secondiAttesaPersonale = i;
+                    forzaAggiornamentoVisivo(); // Invia lo schermo aggiornato col tempo
+                    Thread.sleep(1000); // Aspetta un secondo
+                }
+            } catch (InterruptedException e) {
+                // Timer fermato dall'utente
+            } finally {
+                secondiAttesaPersonale = 0;
+            }
+        });
+        timerThread.start();
+    }
+
+    private void fermaTimer() {
+        if (timerThread != null && timerThread.isAlive()) {
+            timerThread.interrupt(); // Spegne il thread del timer
+        }
+        secondiAttesaPersonale = 0;
+    }
+    // ==================================
 
     @Override
     public void run() {
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
             in = new ObjectInputStream(socket.getInputStream());
-            boolean keepGoing = true;
 
-            while (keepGoing) {
-                out.writeObject("Benvenuto! Attendi il tuo turno al tavolo...");
+            // FIX NICKNAME: Attende in silenzio il nome dalla GUI e verifica che sia unico!
+            String nickRichiesto = (String) in.readObject();
+            this.nickname = room.ottieniNicknameUnico(nickRichiesto);
+            room.aggiungiGiocatore(this);
+
+            while (true) {
+                mani.clear();
+                inGioco = false;
+                inviaStato(GameState.FaseGioco.ATTESA, "In attesa del prossimo round...", true, false, 0);
+                room.aggiornaTavolo();
+
                 room.attendiIlTuoTurno();
 
-                // ==========================================
-                // 1. FASE SCOMMESSA (Timeout 30s)
-                // ==========================================
+                inGioco = true;
+                room.aggiornaTavolo();
+
                 int scommessaIniziale = 0;
-                out.writeObject("Hai " + fiches + " fiches. Quanto scommetti? (Hai 30 secondi):");
+                inviaStato(GameState.FaseGioco.SCOMMESSA, "Hai " + fiches + " fiches. Quanto scommetti?", false, false, 0);
+                avviaTimer(30);
+
                 try {
                     socket.setSoTimeout(30000);
                     while (true) {
                         String input = (String) in.readObject();
-                        try {
-                            scommessaIniziale = Integer.parseInt(input.trim());
-                            if (scommessaIniziale > 0 && scommessaIniziale <= fiches) {
-                                fiches -= scommessaIniziale;
-                                break;
-                            } else {
-                                out.writeObject("Importo non valido. Riprova:");
-                            }
-                        } catch (NumberFormatException e) {
-                            out.writeObject("Inserisci un numero valido:");
+                        scommessaIniziale = Integer.parseInt(input.trim());
+                        if (scommessaIniziale > 0 && scommessaIniziale <= fiches) {
+                            fiches -= scommessaIniziale;
+                            fermaTimer();
+                            break;
+                        } else {
+                            out.writeObject("⚠️ Importo non valido. Riprova:");
                         }
                     }
                 } catch (SocketTimeoutException e) {
+                    fermaTimer();
                     scommessaIniziale = (fiches < 100) ? fiches : 100;
                     fiches -= scommessaIniziale;
-                    out.writeObject("⏳ Tempo scaduto! Il croupier piazza " + scommessaIniziale + " fiches per te.");
+                    out.writeObject("⏳ Tempo scaduto! Scommessa automatica.");
                 } finally {
-                    socket.setSoTimeout(0); // Ripristina il timeout
+                    socket.setSoTimeout(0);
                 }
 
-                // ==========================================
-                // 2. DISTRIBUZIONE CARTE
-                // ==========================================
                 mani.clear();
-                ManoGiocatore manoPrincipale = new ManoGiocatore(scommessaIniziale);
+                Mano manoPrincipale = new Mano(scommessaIniziale);
                 manoPrincipale.carte.add(room.getDeck().drawCard());
                 manoPrincipale.carte.add(room.getDeck().drawCard());
                 mani.add(manoPrincipale);
 
+                room.aggiornaTavolo();
+
                 boolean dealerHaBlackjack = (room.getDealerScore() == 21);
 
-                // ==========================================
-                // 3. ASSICURAZIONE
-                // ==========================================
+                int assicurazione = 0;
                 if (room.getDealerHand().get(0).rank.equals("A")) {
                     int costoAssic = scommessaIniziale / 2;
-                    inviaStatoAlClient("⚠️ Il banco ha un Asso! Vuoi l'assicurazione per " + costoAssic + " fiches? (si/no)", false, false, 0);
-
-                    String risp = (String) in.readObject();
-                    if (risp != null && risp.equalsIgnoreCase("si") && fiches >= costoAssic) {
-                        fiches -= costoAssic;
-                        if (dealerHaBlackjack) {
-                            fiches += (costoAssic * 3);
-                            out.writeObject("🛡️ L'assicurazione ti salva! Pagamento 2:1.");
-                        } else {
-                            out.writeObject("❌ Nessun Blackjack per il banco. Assicurazione persa.");
+                    inviaStato(GameState.FaseGioco.ASSICURAZIONE, "⚠️ Assicurazione per " + costoAssic + " fiches? (si/no)", false, false, 0);
+                    avviaTimer(30);
+                    try {
+                        socket.setSoTimeout(30000);
+                        String risp = (String) in.readObject();
+                        fermaTimer();
+                        if (risp.equalsIgnoreCase("si") && fiches >= costoAssic) {
+                            assicurazione = costoAssic;
+                            fiches -= assicurazione;
+                            out.writeObject(dealerHaBlackjack ? "🛡️ Assicurazione paga!" : "❌ Assicurazione persa.");
+                            if (dealerHaBlackjack) fiches += (assicurazione * 3);
                         }
-                    }
+                    } catch (SocketTimeoutException e) {fermaTimer(); }
+                    finally { socket.setSoTimeout(0); }
                 }
 
-                if (room.getHandValue(manoPrincipale.carte) == 21) {
-                    manoPrincipale.blackjack = true;
-                }
+                if (room.getHandValue(manoPrincipale.carte) == 21) manoPrincipale.blackjack = true;
 
-                // ==========================================
-                // 4. CICLO DI GIOCO (Split, Raddoppio, Timeout 60s)
-                // ==========================================
                 if (!dealerHaBlackjack) {
                     for (int i = 0; i < mani.size(); i++) {
-                        ManoGiocatore manoAttuale = mani.get(i);
+                        Mano manoAttuale = mani.get(i);
                         if (manoAttuale.blackjack) continue;
 
-                        boolean accesso = true;
-                        while (accesso) {
+                        boolean turnoAttivo = true;
+                        while (turnoAttivo) {
                             boolean canDouble = (manoAttuale.carte.size() == 2 && fiches >= manoAttuale.scommessa);
                             boolean canSplit = (canDouble && manoAttuale.carte.get(0).rank.equals(manoAttuale.carte.get(1).rank) && mani.size() < 4);
 
@@ -124,135 +169,134 @@ public class ClientHandler implements Runnable {
                             if (canDouble) opzioni += ", 'raddoppio'";
                             if (canSplit) opzioni += ", 'split'";
 
-                            inviaStatoAlClient(opzioni, false, false, i);
-                            String comando = null;
+                            inviaStato(GameState.FaseGioco.TURNO_GIOCATORE, opzioni, false, false, i);
+                            avviaTimer(60);
 
                             try {
                                 socket.setSoTimeout(60000);
-                                comando = (String) in.readObject();
-                            } catch (SocketTimeoutException e) {
-                                inviaStatoAlClient("⏳ Tempo scaduto! Sto automatico.", true, false, i);
-                                accesso = false;
-                            } finally {
-                                socket.setSoTimeout(0);
-                            }
+                                String cmd = (String) in.readObject();
+                                fermaTimer();
 
-                            if (comando != null && accesso) {
-                                if (comando.equalsIgnoreCase("carta")) {
+                                if (cmd.equalsIgnoreCase("carta")) {
                                     manoAttuale.carte.add(room.getDeck().drawCard());
                                     if (room.getHandValue(manoAttuale.carte) >= 21) {
                                         manoAttuale.sballata = (room.getHandValue(manoAttuale.carte) > 21);
-                                        accesso = false;
+                                        turnoAttivo = false;
                                     }
-                                } else if (comando.equalsIgnoreCase("sto")) {
-                                    accesso = false;
-                                } else if (comando.equalsIgnoreCase("raddoppio") && canDouble) {
-                                    fiches -= manoAttuale.scommessa;
-                                    manoAttuale.scommessa *= 2;
+                                    room.aggiornaTavolo();
+                                } else if (cmd.equalsIgnoreCase("sto")) {
+                                    turnoAttivo = false;
+                                } else if (cmd.equalsIgnoreCase("raddoppio") && canDouble) {
+                                    fiches -= manoAttuale.scommessa; manoAttuale.scommessa *= 2;
                                     manoAttuale.carte.add(room.getDeck().drawCard());
                                     if (room.getHandValue(manoAttuale.carte) > 21) manoAttuale.sballata = true;
-                                    accesso = false;
-                                } else if (comando.equalsIgnoreCase("split") && canSplit) {
+                                    turnoAttivo = false;
+                                    room.aggiornaTavolo();
+                                } else if (cmd.equalsIgnoreCase("split") && canSplit) {
                                     fiches -= manoAttuale.scommessa;
-                                    ManoGiocatore nuovaMano = new ManoGiocatore(manoAttuale.scommessa);
+                                    Mano nuovaMano = new Mano(manoAttuale.scommessa);
                                     nuovaMano.carte.add(manoAttuale.carte.remove(1));
-
                                     manoAttuale.carte.add(room.getDeck().drawCard());
                                     nuovaMano.carte.add(room.getDeck().drawCard());
                                     mani.add(nuovaMano);
-                                    out.writeObject("Mano divisa con successo!");
+                                    out.writeObject("♠️ Mano divisa!");
+                                    room.aggiornaTavolo();
                                 } else {
-                                    out.writeObject("Comando non valido.");
+                                    out.writeObject("⚠️ Comando non valido.");
                                 }
-                            }
+                            } catch (SocketTimeoutException e) {
+                                fermaTimer();
+                                out.writeObject("⏳ Tempo scaduto!");
+                                turnoAttivo = false;
+                            } finally { socket.setSoTimeout(0); }
                         }
                     }
                 }
 
-                // ==========================================
-                // 5. ATTESA BANCO E PAGAMENTI
-                // ==========================================
-                inviaStatoAlClient("In attesa del banco e degli altri giocatori...", true, false, 0);
+                inviaStato(GameState.FaseGioco.ATTESA, "In attesa del banco...", true, false, 0);
                 room.fineTurnoGiocatore();
                 room.attendiFineMano();
 
-                int dealerTotal = room.getDealerScore();
-                StringBuilder risultati = new StringBuilder("RISULTATI:\n");
-
-                for (int i = 0; i < mani.size(); i++) {
-                    ManoGiocatore m = mani.get(i);
-                    int playerTotal = room.getHandValue(m.carte);
-                    risultati.append("- Mano ").append(i+1).append(": ");
-
-                    if (m.sballata) {
-                        risultati.append("Persa (Sballato).\n");
-                    } else if (m.blackjack && !dealerHaBlackjack) {
-                        risultati.append("Vinta! (Blackjack Naturale!)\n");
-                        fiches += (m.scommessa * 2.5);
-                    } else if (dealerTotal > 21 || playerTotal > dealerTotal) {
-                        risultati.append("Vinta!\n");
-                        fiches += (m.scommessa * 2);
-                    } else if (playerTotal < dealerTotal) {
-                        risultati.append("Persa.\n");
-                    } else {
-                        risultati.append("Pareggio.\n");
-                        fiches += m.scommessa;
-                    }
+                int dealerTot = room.getDealerScore();
+                for (Mano mano : mani) {
+                    int pTot = room.getHandValue(mano.carte);
+                    if (mano.sballata) continue;
+                    if (mano.blackjack && !dealerHaBlackjack) fiches += (int)(mano.scommessa * 2.5);
+                    else if (dealerTot > 21 || pTot > dealerTot) fiches += mano.scommessa * 2;
+                    else if (pTot == dealerTot) fiches += mano.scommessa;
                 }
-
-                inviaStatoAlClient(risultati.toString(), true, true, 0);
 
                 if (fiches <= 0) {
-                    out.writeObject("Game Over. Fiches esaurite.");
-                    keepGoing = false;
+                    inviaStato(GameState.FaseGioco.ATTESA, "💸 BANCAROTTA! Game Over.", true, true, 0);
+                    room.sceltaEffettuata();
+                    break;
                 } else {
-                    out.writeObject("Vuoi restare al tavolo? (si/no)");
-                    String choice = (String) in.readObject();
-                    if (choice == null || !choice.equalsIgnoreCase("si")) keepGoing = false;
+                    inviaStato(GameState.FaseGioco.FINE_MANO, "Partita conclusa! Scrivi 'si' o 'no'.", true, true, 0);
+                    avviaTimer(30);
+                    String choice = null;
+                    try {
+                        socket.setSoTimeout(30000);
+                        choice = (String) in.readObject();
+                        fermaTimer();
+                    } catch (SocketTimeoutException e) {
+                        fermaTimer();
+                        out.writeObject("⏳ Tempo scaduto!");
+                    } finally { socket.setSoTimeout(0); }
+
+                    room.sceltaEffettuata();
+                    if (choice == null || !choice.equalsIgnoreCase("si")) break;
                 }
-                room.sceltaEffettuata();
             }
-        } catch (Exception e) {
-            System.out.println("Giocatore disconnesso.");
-        } finally {
-            room.sceltaEffettuata();
-            room.aPlayerLeft();
-            try { socket.close(); } catch (IOException ex) { }
+        } catch (Exception e) { }
+        finally {
+            fermaTimer();
+            boolean turnoCompletato = (faseAttuale == GameState.FaseGioco.ATTESA || faseAttuale == GameState.FaseGioco.FINE_MANO);
+            room.aPlayerLeft(turnoCompletato);
+            room.rimuoviGiocatore(this);
+            try { socket.close(); } catch (IOException ex) {}
         }
     }
 
-    private void inviaStatoAlClient(String messaggio, boolean turnoFinito, boolean finePartita, int manoAttualeIndex) throws IOException {
-        List<String> nomiBanco = new ArrayList<>();
-        int punteggioVisibileBanco = 0;
+    private synchronized void inviaStato(GameState.FaseGioco fase, String msg, boolean fineTurno, boolean finePartita, int manoIdx) throws IOException {
+        this.faseAttuale = fase; this.msgAttuale = msg; this.fineTurnoAttuale = fineTurno;
+        this.finePartitaAttuale = finePartita; this.manoIdxAttuale = manoIdx;
 
-        // Anti-Cheat: Copri la seconda carta del banco se si sta ancora giocando
-        List<Card> carteRealiBanco = room.getDealerHand();
-        if (!carteRealiBanco.isEmpty()) {
-            nomiBanco.add(carteRealiBanco.get(0).toString());
-            punteggioVisibileBanco = carteRealiBanco.get(0).getValue();
-            if (!finePartita && carteRealiBanco.size() > 1) {
-                nomiBanco.add("[CARTA COPERTA]");
-            } else {
-                for (int i = 1; i < carteRealiBanco.size(); i++) nomiBanco.add(carteRealiBanco.get(i).toString());
-                punteggioVisibileBanco = room.getDealerScore();
+        Map<String, List<List<String>>> avversari = new HashMap<>();
+        List<ClientHandler> copiaGiocatori = new ArrayList<>(room.getGiocatoriSeduti());
+        for (ClientHandler altro : copiaGiocatori) {
+            if (altro != this && altro.getNickname() != null) {
+                avversari.put(altro.getNickname(), altro.getManiInStringhe());
             }
         }
 
-        // Impacchetta tutte le mani del giocatore
-        List<List<String>> stringheMani = new ArrayList<>();
-        List<Integer> punteggiMani = new ArrayList<>();
-        List<Integer> scommesseMani = new ArrayList<>();
-
-        for (ManoGiocatore m : mani) {
-            List<String> carteStr = new ArrayList<>();
-            for (Card c : m.carte) carteStr.add(c.toString());
-            stringheMani.add(carteStr);
-            punteggiMani.add(room.getHandValue(m.carte));
-            scommesseMani.add(m.scommessa);
+        List<String> dealerCards = new ArrayList<>();
+        int dealerVisScore = 0;
+        if (!room.getDealerHand().isEmpty()) {
+            dealerCards.add(room.getDealerHand().get(0).toString());
+            dealerVisScore = room.getDealerHand().get(0).getValue();
+            if (!finePartita) dealerCards.add("[CARTA COPERTA]");
+            else {
+                dealerCards.clear();
+                for(Card c : room.getDealerHand()) dealerCards.add(c.toString());
+                dealerVisScore = room.getDealerScore();
+            }
         }
 
-        GameState state = new GameState(nomiBanco, punteggioVisibileBanco, stringheMani, punteggiMani, scommesseMani, manoAttualeIndex, fiches, messaggio, turnoFinito, finePartita);
-        out.writeObject(state);
+        List<List<String>> maniStr = new ArrayList<>();
+        List<Integer> puntMani = new ArrayList<>();
+        List<Integer> scomMani = new ArrayList<>();
+
+        for (Mano m : mani) {
+            List<String> cStr = new ArrayList<>();
+            for (Card c : m.carte) cStr.add(c.toString());
+            maniStr.add(cStr);
+            puntMani.add(room.getHandValue(m.carte));
+            scomMani.add(m.scommessa);
+        }
+
+        // SPEDISCE ANCHE I SECONDI DI ATTESA
+        int timerVisibile = Math.max(room.getSecondiAttesa(), this.secondiAttesaPersonale);
+        out.writeObject(new GameState(fase, dealerCards, dealerVisScore, maniStr, puntMani, scomMani, manoIdx, fiches, msg, fineTurno, finePartita, avversari,timerVisibile));
         out.reset();
     }
 }
