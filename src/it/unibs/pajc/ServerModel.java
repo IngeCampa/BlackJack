@@ -13,28 +13,30 @@ public class ServerModel {
     private boolean carteDistribuite = false;
     private boolean timerAvviato = false;
     private int giocatoriInAttesa = 0, giocatoriInGioco = 0, giocatoriCheHannoFinito = 0, giocatoriInScelta = 0;
-
-    // NUOVO: Timer visibile
-    private int secondiAttesa = 0;
+    
+    // FIX DEADLOCK 1: Usiamo volatile invece di synchronized per evitare che il Server si blocchi per leggere il tempo!
+    private volatile int secondiAttesa = 0;
 
     public Deck getDeck() { return deck; }
     public List<Card> getDealerHand() { return dealerHand; }
     public int getDealerScore() { return getHandValue(dealerHand); }
-    public synchronized int getSecondiAttesa() { return secondiAttesa; }
+    public int getSecondiAttesa() { return secondiAttesa; }
 
-    // NUOVO: Rinomina in automatico se il nome è già preso (es. Marco -> Marco_2)
     public String ottieniNicknameUnico(String baseNick) {
         String nick = baseNick;
         int counter = 2;
         boolean duplicato;
         do {
             duplicato = false;
-            for (ClientHandler ch : giocatoriSeduti) {
-                if (nick.equalsIgnoreCase(ch.getNickname())) {
-                    duplicato = true;
-                    nick = baseNick + "_" + counter;
-                    counter++;
-                    break;
+            // Accesso sicuro alla lista
+            synchronized(giocatoriSeduti) {
+                for (ClientHandler ch : giocatoriSeduti) {
+                    if (nick.equalsIgnoreCase(ch.getNickname())) {
+                        duplicato = true;
+                        nick = baseNick + "_" + counter;
+                        counter++;
+                        break;
+                    }
                 }
             }
         } while (duplicato);
@@ -42,13 +44,10 @@ public class ServerModel {
     }
 
     public void aggiungiGiocatore(ClientHandler c) { giocatoriSeduti.add(c); aggiornaTavolo(); }
+    
     public synchronized void rimuoviGiocatore(ClientHandler c) {
         giocatoriSeduti.remove(c);
-
         if (giocatoriSeduti.isEmpty()) {
-            // ==========================================
-            // HARD RESET: LA STANZA È COMPLETAMENTE VUOTA
-            // ==========================================
             giocoInCorso = false;
             carteDistribuite = false;
             timerAvviato = false;
@@ -59,24 +58,34 @@ public class ServerModel {
             secondiAttesa = 0;
             dealerHand.clear();
             deck.reset();
-            notifyAll(); // Sblocca categoricamente eventuali thread rimasti appesi
-
-            System.out.println("Tutti i giocatori sono usciti. Stanza formattata e pronta per nuovi arrivi.");
+            notifyAll(); 
+            System.out.println("Stanza vuota. Hard Reset completato.");
         } else {
-            // Se c'è ancora qualcuno, aggiorniamo semplicemente i loro schermi
             aggiornaTavolo();
         }
     }
+
     public List<ClientHandler> getGiocatoriSeduti() { return giocatoriSeduti; }
 
-    public synchronized void aggiornaTavolo() {
-        List<ClientHandler> copiaSicura = new ArrayList<>(giocatoriSeduti);
-        for (ClientHandler ch : copiaSicura) ch.forzaAggiornamentoVisivo();
+    // FIX DEADLOCK 2: Rimosso il 'synchronized' per evitare collisioni col ClientHandler
+    public void aggiornaTavolo() {
+        List<ClientHandler> copiaSicura;
+        // Copia protetta per evitare ConcurrentModificationException se uno si disconnette ora
+        synchronized(giocatoriSeduti) {
+            copiaSicura = new ArrayList<>(giocatoriSeduti);
+        }
+        for (ClientHandler ch : copiaSicura) {
+            ch.forzaAggiornamentoVisivo();
+        }
     }
 
     public int getHandValue(List<Card> hand) {
         int total = 0, aceCount = 0;
-        for(Card c : hand) {
+        // Copia sicura per evitare crash se il banco pesca mentre noi leggiamo
+        List<Card> copiaMano;
+        synchronized(hand) { copiaMano = new ArrayList<>(hand); }
+        
+        for(Card c : copiaMano) {
             total += c.getValue();
             if(c.rank.equals("A")) aceCount++;
         }
@@ -84,21 +93,19 @@ public class ServerModel {
         return total;
     }
 
-    // NUOVO: Timer Dinamico!
     public synchronized void attendiIlTuoTurno() throws InterruptedException {
         while (giocoInCorso || giocatoriInScelta > 0) wait();
         giocatoriInAttesa++;
-
+        
         if (!timerAvviato) {
             timerAvviato = true;
-            // Fa partire un thread che conta da 5 a 0 aggiornando la grafica
             new Thread(() -> {
                 for (int i = 5; i > 0; i--) {
-                    synchronized(this) { secondiAttesa = i; }
+                    secondiAttesa = i;
                     aggiornaTavolo();
                     try { Thread.sleep(1000); } catch (InterruptedException e) {}
                 }
-                synchronized(this) { secondiAttesa = 0; }
+                secondiAttesa = 0;
                 iniziaMano();
             }).start();
         }
@@ -115,25 +122,25 @@ public class ServerModel {
         dealerHand.clear();
         dealerHand.add(deck.drawCard());
         dealerHand.add(deck.drawCard());
-
+        
         carteDistribuite = true;
         notifyAll();
-        aggiornaTavolo();
+        aggiornaTavolo(); 
     }
 
     private synchronized void controllaFineMano() {
         if (giocoInCorso && giocatoriCheHannoFinito >= giocatoriInGioco) {
             if (giocatoriInGioco > 0) {
                 while (getHandValue(dealerHand) < 17) {
-                    try { Thread.sleep(1000); } catch (InterruptedException e) {}
+                    try { Thread.sleep(1000); } catch (InterruptedException e) {} 
                     dealerHand.add(deck.drawCard());
-                    aggiornaTavolo();
+                    aggiornaTavolo(); 
                 }
             }
             giocatoriInScelta = giocatoriInGioco;
-            giocoInCorso = false;
+            giocoInCorso = false; 
             carteDistribuite = false;
-            notifyAll();
+            notifyAll(); 
             aggiornaTavolo();
         }
     }
@@ -147,7 +154,8 @@ public class ServerModel {
         }
     }
 
-    public synchronized void aPlayerLeft(boolean avevaFinitoIlTurno) {
+    // FIX DOPPIO SCONTO: Aggiunto il controllo 'sceltaGiaFatta' per evitare matematiche negative
+    public synchronized void aPlayerLeft(boolean avevaFinitoIlTurno, boolean sceltaGiaFatta) {
         if (giocoInCorso) {
             giocatoriInGioco--;
             if (avevaFinitoIlTurno) giocatoriCheHannoFinito--;
@@ -155,7 +163,8 @@ public class ServerModel {
         } else if (giocatoriInAttesa > 0) {
             giocatoriInAttesa--;
         }
-        if (giocatoriInScelta > 0) {
+        
+        if (!sceltaGiaFatta && giocatoriInScelta > 0) {
             giocatoriInScelta--;
             if (giocatoriInScelta == 0) notifyAll();
         }

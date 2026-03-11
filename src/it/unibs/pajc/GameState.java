@@ -18,15 +18,19 @@ public class GameState implements Serializable {
     private String messaggioAvviso;
     private boolean turnoFinito;
     private boolean finePartita;
+    
     private Map<String, List<List<String>>> altriGiocatori;
-
+    private Map<String, List<Integer>> scommesseAvversari; // per visualizzare le scommesse degli altri giocatori
+    
     // NUOVO: Timer per l'interfaccia
     private int secondiAttesa;
 
     public GameState(FaseGioco faseAttuale, List<String> carteDealer, int punteggioDealer,
                      List<List<String>> maniGiocatore, List<Integer> punteggiMani, List<Integer> scommesseMani,
                      int indiceManoAttuale, int fiches, String messaggioAvviso, boolean turnoFinito, boolean finePartita,
-                     Map<String, List<List<String>>> altriGiocatori, int secondiAttesa) {
+                     Map<String, List<List<String>>> altriGiocatori, 
+                     Map<String, List<Integer>> scommesseAvversari,
+                     int secondiAttesa) {
         this.faseAttuale = faseAttuale;
         this.carteDealer = carteDealer;
         this.punteggioDealer = punteggioDealer;
@@ -39,6 +43,7 @@ public class GameState implements Serializable {
         this.turnoFinito = turnoFinito;
         this.finePartita = finePartita;
         this.altriGiocatori = altriGiocatori;
+        this.scommesseAvversari = scommesseAvversari;
         this.secondiAttesa = secondiAttesa; // Salvato!
     }
 
@@ -55,4 +60,5 @@ public class GameState implements Serializable {
     public boolean isFinePartita() { return finePartita; }
     public Map<String, List<List<String>>> getAltriGiocatori() { return altriGiocatori; }
     public int getSecondiAttesa() { return secondiAttesa; }
+    public Map<String, List<Integer>> getScommesseAvversari() { return scommesseAvversari; }
 }
