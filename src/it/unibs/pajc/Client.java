@@ -5,6 +5,8 @@ import java.net.Socket;
 public class Client {
     private final GameUpdateListener listener;
     private ObjectOutputStream out;
+    
+    private String nickname;
 
     public Client(GameUpdateListener listener) { this.listener = listener; }
 
@@ -47,4 +49,12 @@ public class Client {
     public void inviaComando(String cmd) {
         try { out.writeObject(cmd); out.flush(); } catch (Exception e) { }
     }
+
+	public String getNickname() {
+		return nickname;
+	}
+
+	public void setNickname(String nickname) {
+		this.nickname = nickname;
+	}
 }

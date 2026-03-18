@@ -94,6 +94,33 @@ public class ClientHandler implements Runnable {
             
             String nickRichiesto = (String) in.readObject();
             this.nickname = room.ottieniNicknameUnico(nickRichiesto);
+            
+            // sala d'attesa 
+            boolean inCoda = false;
+            while (true) {
+            int postiOccupati = 0;
+            // Controlliamo quanti giocatori ci sono effettivamente seduti
+            synchronized(room.getGiocatoriSeduti()) {
+            postiOccupati = room.getGiocatoriSeduti().size();
+            }
+
+                    if (postiOccupati < 4) {
+                        break; // C'è un posto libero, usciamo dalla coda e ci sediamo!
+                    }
+                    
+                    // Se è la prima volta che entriamo nel ciclo, diamo il benvenuto in coda
+                    if (!inCoda) {
+                        inviaStato(GameState.FaseGioco.ATTESA, "Stanza Piena (4/4)! Sei in coda come Spettatore...", true, false, 0);
+                        inCoda = true;
+                    }
+                    
+                    // Invia le carte degli altri al giocatore in coda (Modalità Spettatore Live!)
+                    forzaAggiornamentoVisivo(); 
+                    
+                    // Mettiamo in pausa questo giocatore per 2 secondi prima di ricontrollare se si è liberato un posto
+                    try { Thread.sleep(2000); } catch (InterruptedException ex) {}
+                }
+            
             room.aggiungiGiocatore(this); 
             
             while (true) {
@@ -140,8 +167,12 @@ public class ClientHandler implements Runnable {
                 Mano manoPrincipale = new Mano(scommessaIniziale);
                 manoPrincipale.carte.add(room.getDeck().drawCard()); 
                 manoPrincipale.carte.add(room.getDeck().drawCard());
-                mani.add(manoPrincipale);
                 
+                // per testare split
+               // manoPrincipale.carte.add(new Card("Cuori", "8")); 
+               // manoPrincipale.carte.add(new Card("Quadri", "8"));
+               
+                mani.add(manoPrincipale);
                 room.aggiornaTavolo(); 
 
                 boolean dealerHaBlackjack = (room.getDealerScore() == 21);
@@ -219,7 +250,7 @@ public class ClientHandler implements Runnable {
                                     nuovaMano.carte.add(room.getDeck().drawCard());
                                     mani.add(nuovaMano);
                                     out.writeObject("♠️ Mano divisa!");
-                                    room.aggiornaTavolo(); 
+                                    room.aggiornaTavolo();
                                 } else {
                                     out.writeObject("⚠️ Comando non valido.");
                                 }
