@@ -33,8 +33,9 @@ public class Client {
                         }
                     }
                 } catch (Exception e) { 
-                    listener.sulMessaggioDiTesto("Disconnesso dal server."); 
-                    System.exit(0);
+                    //listener.sulMessaggioDiTesto("Disconnesso dal server."); 
+                    //System.exit(0);
+                	listener.sulMessaggioDiTesto("DISCONNESSIONE");
                 }
             }).start();
             

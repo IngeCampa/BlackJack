@@ -14,9 +14,14 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
 	private static final String FONT_GIOCO = "Georgia";
     private Client client; 
+    private boolean isHost;
+    
     private GameState statoAttuale;
     private Map<String, Image> cacheFichesPiccole = new HashMap<>();
     private Map<String, Image> cacheFichesGrandi = new HashMap<>();
+    
+ // LA BANDIERINA SALVAVITA PER IL POPUP:
+    private boolean bancarottaMostrata = false;
 
     // Componenti dell'Interfaccia
     private JLabel lblMessaggioServer;
@@ -27,6 +32,9 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private JPanel panelTimer;
     private JPanel panelFichesScommessa;
     private JPanel panelComandi;
+    private JTextArea areaChat;
+    private JTextField txtInputChat;
+    private JPanel panelChat;
     
     private JLabel lblTimer;
     private JLabel lblPuntataAttuale;
@@ -46,7 +54,9 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private int timerSecondi = 0;
 
     // Costruttore: riceve il nickname direttamente dalla schermata di Login
-    public BlackjackGUI(String nickname, String ipAddress) {
+    public BlackjackGUI(String nickname, String ipAddress, boolean isHost) {
+		super("Blackjack - Giocatore: " + nickname);
+		this.isHost = isHost;
         
     	this.setUndecorated(true); // rimuove barra windows
     	
@@ -59,9 +69,19 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     	    System.out.println("Impossibile caricare l'icona del gioco.");
     	}
     	
-        setSize(1000, 800); 
+    	setSize(1200, 800);
         setResizable(false); // Blocca la dimensione della finestra
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+     // ==========================================
+        // GESTIONE CHIUSURA FINESTRA (HOST vs CLIENT)
+        // ==========================================
+        if (this.isHost) {
+            // Se sei l'Host, chiudere la finestra DISTRUGGE SOLO LA GRAFICA (dispose).
+            // Il programma Java rimarrà segretamente acceso per tenere in vita il Server!
+            setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); 
+        } else {
+            // Se sei un giocatore normale, chiudere la finestra spegne tutto.
+            setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        }
         setLayout(new BorderLayout());
         setLocationRelativeTo(null); // Centra la finestra
 
@@ -243,7 +263,8 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         // ==========================================
         JPanel panelSouthContainer = new JPanel(new BorderLayout());
         panelSouthContainer.setBackground(Color.LIGHT_GRAY);
-
+        panelSouthContainer.setPreferredSize(new Dimension(1000, 110));
+        
         panelComandi = new JPanel(new FlowLayout());
         panelComandi.setOpaque(false);
 
@@ -365,6 +386,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         JPanel panelExit = new JPanel(new FlowLayout(FlowLayout.RIGHT, 15, 5));
         panelExit.setOpaque(false);
         
+        JButton btnToggleChat = new JButton("Chat");
+        btnToggleChat.setBackground(new Color(70, 130, 180)); // Un bel blu elegante
+        btnToggleChat.setForeground(Color.WHITE);
+        btnToggleChat.setFont(new Font(FONT_GIOCO, Font.BOLD, 14));
+        
+        btnToggleChat.addActionListener(e -> {
+            // Se è visibile la nasconde, se è nascosta la mostra!
+            panelChat.setVisible(!panelChat.isVisible());
+            
+            // Ordiniamo alla finestra di "ridisegnarsi" per fare spazio alla chat
+            BlackjackGUI.this.revalidate();
+            BlackjackGUI.this.repaint();
+        });
+        
         btnEsci = new JButton("Esci dal Tavolo");
         btnEsci.setBackground(new Color(180, 0, 0)); 
         btnEsci.setForeground(Color.WHITE);
@@ -372,23 +407,109 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnEsci.setEnabled(false); 
         
         btnEsci.addActionListener(e -> {
-            client.inviaComando("esci");
             btnEsci.setEnabled(false); 
-            lblMessaggioServer.setText("Uscita dal tavolo in corso...");
+            lblMessaggioServer.setText("Arrivederci! Uscita in corso...");
+            // Avvisiamo il server. Il server chiuderà la connessione, 
+            // e scatterà in automatico la magia nel metodo sulMessaggioDiTesto!
+            client.inviaComando("esci"); 
         });
         
+        JButton btnClassifica = new JButton("Classifica");
+        btnClassifica.setBackground(new Color(255, 215, 0)); // Colore oro!
+        btnClassifica.setForeground(Color.BLACK);
+        btnClassifica.setFont(new Font(FONT_GIOCO, Font.BOLD, 14));
+        btnClassifica.addActionListener(e -> {
+            client.inviaComando("CLASSIFICA");
+        });
+        
+       
+        panelExit.add(btnClassifica);
+        
+        panelExit.add(btnToggleChat);
         panelExit.add(btnEsci);
 
         // Aggiungiamo il tutto al container principale in basso
         panelSouthContainer.add(panelComandi, BorderLayout.CENTER);
         panelSouthContainer.add(panelExit, BorderLayout.EAST);
+        
+     // ==========================================
+        // PANNELLO CHAT LATERALE (A DESTRA)
+        // ==========================================
+        panelChat = new JPanel(new BorderLayout());
+        panelChat.setPreferredSize(new Dimension(280, 0)); // Larghezza fissa, altezza adatta alla finestra
+        panelChat.setOpaque(false);
+        panelChat.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "CHAT TAVOLO", 0, 0, new Font(FONT_GIOCO, Font.BOLD, 14), Color.ORANGE));
 
+        areaChat = new JTextArea();
+        areaChat.setEditable(false);
+        areaChat.setLineWrap(true);
+        areaChat.setWrapStyleWord(true);
+        areaChat.setBackground(new Color(20, 20, 20, 200)); // Nero semitrasparente elegante
+        areaChat.setForeground(Color.WHITE);
+        areaChat.setFont(new Font("SansSerif", Font.PLAIN, 15));
+        areaChat.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
+
+        JScrollPane scrollChat = new JScrollPane(areaChat);
+        scrollChat.setOpaque(false);
+        scrollChat.getViewport().setOpaque(false);
+        scrollChat.setBorder(BorderFactory.createEmptyBorder());
+
+        txtInputChat = new JTextField();
+        txtInputChat.setBackground(new Color(50, 50, 50));
+        txtInputChat.setForeground(Color.WHITE);
+        txtInputChat.setCaretColor(Color.WHITE);
+        txtInputChat.setFont(new Font("SansSerif", Font.PLAIN, 15));
+        txtInputChat.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(Color.GRAY),
+            BorderFactory.createEmptyBorder(5, 5, 5, 5)
+        ));
+
+        // Quando premi INVIO sulla tastiera, invia la chat!
+        txtInputChat.addActionListener(e -> {
+            String txt = txtInputChat.getText().trim();
+            if (!txt.isEmpty()) {
+                client.inviaComando("CHAT:" + txt); // Il prefisso magico!
+                txtInputChat.setText("");
+            }
+        });
+
+        panelChat.add(scrollChat, BorderLayout.CENTER);
+        panelChat.add(txtInputChat, BorderLayout.SOUTH);
+        panelChat.setVisible(false);
+        add(panelChat, BorderLayout.EAST); // Aggiunge la chat a destra del tavolo verde!
+        
         add(panelSouthContainer, BorderLayout.SOUTH);
+        
     }
 
     @Override
     public void sulMessaggioDiTesto(String messaggio) {
-        SwingUtilities.invokeLater(() -> lblMessaggioServer.setText(messaggio));
+        SwingUtilities.invokeLater(() -> {
+            // 1. È UN MESSAGGIO DELLA CHAT?
+            if (messaggio.startsWith("CHATMSG:")) {
+                String chatTesto = messaggio.substring(8); // Togliamo il prefisso
+                areaChat.append(chatTesto + "\n");
+                // Scrolla in basso in automatico
+                areaChat.setCaretPosition(areaChat.getDocument().getLength());
+            } 
+            // 2. È UN SEGNALE DI DISCONNESSIONE?
+            else if (messaggio.equals("DISCONNESSIONE") || messaggio.toLowerCase().contains("disconness")) {
+                if (this.isHost) {
+                    BlackjackGUI.this.dispose(); 
+                } else {
+                    System.exit(0); 
+                }
+            } 
+            else if (messaggio.startsWith("CLASSIFICA_DATI:")) {
+                // FA APPARIRE LA BACHECA!
+                String dati = messaggio.substring("CLASSIFICA_DATI:".length());
+                JOptionPane.showMessageDialog(this, dati, "🏆 Classifica", JOptionPane.INFORMATION_MESSAGE);
+            }
+            // 3. È UN MESSAGGIO NORMALE DEL SERVER
+            else {
+                lblMessaggioServer.setText(messaggio);
+            }
+        });
     }
 
     @Override
@@ -638,18 +759,30 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.revalidate();
         panelGiocatore.repaint();
         
-        // ==========================================
-        // POPUP DI BANCAROTTA!
+     // ==========================================
+        // POPUP DI BANCAROTTA (Lucchetto di Titanio!)
         // ==========================================
         if (state.getFiches() <= 0 && state.getMessaggioAvviso() != null && state.getMessaggioAvviso().contains("BANCAROTTA")) {
-            // Mostra un Alert bloccante a schermo
-            JOptionPane.showMessageDialog(this, 
-                "Hai esaurito tutte le fiches!\nLa tua partita finisce qui. Grazie per aver giocato.", 
-                "💸 Bancarotta!", 
-                JOptionPane.ERROR_MESSAGE); // Mostra l'icona rossa di errore
             
-            // Appena l'utente clicca OK, manda il segnale segreto al Server per farsi disconnettere
-            client.inviaComando("capito_bancarotta");
+            if (!bancarottaMostrata) {
+                bancarottaMostrata = true; // 1. ALZA LA BANDIERINA ISTANTANEAMENTE
+
+                // 2. Apriamo il pop-up in un canale separato così i "tic" del timer gli rimbalzano addosso!
+                new Thread(() -> {
+                    JOptionPane.showMessageDialog(BlackjackGUI.this, 
+                        "Hai esaurito tutte le fiches!\nLa tua partita finisce qui. Grazie per aver giocato.", 
+                        "💸 Bancarotta!", 
+                        JOptionPane.ERROR_MESSAGE); 
+                    
+                    client.inviaComando("capito_bancarotta");
+
+                    if (isHost) {
+                        BlackjackGUI.this.dispose(); 
+                    } else {
+                        System.exit(0); 
+                    }
+                }).start();
+            }
         }
     }
 
@@ -1142,6 +1275,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     }
 
     // se l'utente lascia localhost, allora capisce che sta facendo anche da server e avvia automaticamente la classe Server.java
+ // se l'utente lascia localhost, allora capisce che sta facendo anche da server e avvia automaticamente la classe Server.java
     private static void gestisciStartAutomatico(String nick, String ip) {
         if (ip.equalsIgnoreCase("localhost")) {
             boolean serverGiaAttivo = false;
@@ -1154,20 +1288,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             if (!serverGiaAttivo) {
                 System.out.println("Nessun server locale trovato. Avvio il Server come Host...");
                 new Thread(() -> {
-                    try {
-                        Server.main(new String[]{}); 
-                    } catch (Exception ex) {
-                        ex.printStackTrace();
-                    }
+                    try { Server.main(new String[]{}); } catch (Exception ex) { ex.printStackTrace(); }
                 }).start();
-
                 try { Thread.sleep(500); } catch (InterruptedException ex) {}
+                
+                new BlackjackGUI(nick, "localhost", true); // LUI È IL VERO HOST
+
             } else {
                 System.out.println("Server locale già attivo! Entro come giocatore...");
+                new BlackjackGUI(nick, "localhost", false); // LUI È SOLO UN CLIENT!
             }
-            new BlackjackGUI(nick, "localhost"); 
+            
         } else {
-            new BlackjackGUI(nick, ip);
+            System.out.println("Mi connetto al server remoto: " + ip);
+            new BlackjackGUI(nick, ip, false); // È un Client normale che si connette da fuori
         }
     }
 }
