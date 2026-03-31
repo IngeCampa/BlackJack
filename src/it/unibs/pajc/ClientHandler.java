@@ -13,7 +13,7 @@ public class ClientHandler implements Runnable {
     private ObjectOutputStream out;
     private ObjectInputStream in;
     
-    // IL POSTINO ASINCRONO PER LA CHAT E I COMANDI
+    //Un buffer per i messaggi in arrivo, così il thread principale può leggerli con calma e gestire i timeout
     private final BlockingQueue<String> codaMessaggi = new LinkedBlockingQueue<>();
     
     private int fiches = 1000;
@@ -28,18 +28,32 @@ public class ClientHandler implements Runnable {
     private boolean finePartitaAttuale = false;
     private int manoIdxAttuale = 0;
 
+    // Rappresenta una mano di gioco, con le carte, la scommessa e lo stato
     class Mano { 
         List<Card> carte = new ArrayList<>(); 
-        int scommessa; boolean sballata = false; boolean blackjack = false;
-        Mano(int s) { scommessa = s; } 
+        int scommessa; 
+        boolean sballata = false; 
+        boolean blackjack = false;
+        
+        Mano(int s)
+        { 
+        	scommessa = s;
+        } 
     }
     private List<Mano> mani = new ArrayList<>();
 
-    public ClientHandler(Socket s, ServerModel r) { this.socket = s; this.room = r; }
+    public ClientHandler(Socket s, ServerModel r) 
+    { 
+    	this.socket = s;
+    	this.room = r; 
+    }
 
     public String getNickname() { return nickname; }
     public int getSecondiAttesaPersonale() { return secondiAttesaPersonale; }
     
+    /** Restituisce le mani del giocatore in formato stringa,per inviarle al client senza esporre l'oggetto Card.
+	 * Se il giocatore non è in gioco, restituisce una lista vuota.
+	 */
     public List<List<String>> getManiInStringhe() {
         List<List<String>> maniStr = new ArrayList<>();
         if (!inGioco) return maniStr;
@@ -51,28 +65,51 @@ public class ClientHandler implements Runnable {
         return maniStr;
     }
     
+    /** Restituisce le scommesse di ogni mano del giocatore, per mostrarle agli avversari.
+	 * Se il giocatore non è in gioco, restituisce una lista vuota.
+	 */
     public List<Integer> getScommesseAvversario() {
         List<Integer> scom = new ArrayList<>();
-        if (!inGioco) return scom;
-        for (Mano m : mani) { scom.add(m.scommessa); }
+        if (!inGioco) 
+        	return scom;
+        for (Mano m : mani) 
+        { 
+        	scom.add(m.scommessa); 
+        }
         return scom;
     }
 
+    /** Forza un aggiornamento visivo immediato del client, inviando lo stato attuale.
+	 * quando qualcosa cambia e vogliamo essere sicuri che il client lo veda subito
+	 */
     public synchronized void forzaAggiornamentoVisivo() {
-        try { inviaStato(faseAttuale, msgAttuale, fineTurnoAttuale, finePartitaAttuale, manoIdxAttuale); } 
+        try { 
+        		inviaStato(faseAttuale, msgAttuale, fineTurnoAttuale, finePartitaAttuale, manoIdxAttuale); 
+        	} 
         catch (IOException e) { }
     }
     
+    /** Invia un messaggio di testo diretto al client, senza cambiare lo stato di gioco.
+     *  per comunicazioni istantanee come errori, conferme o notifiche che non richiedono un aggiornamento completo dello stato.
+     **/
     public synchronized void inviaTestoDiretto(String msg) {
-        try { out.writeObject(msg); out.reset(); } catch (Exception e) {}
+        try { 
+        	out.writeObject(msg); out.reset();
+        	} 
+        catch (Exception e) {}
     }
     
     private String leggiConTimeout(int secondi) throws Exception {
         String msg = codaMessaggi.poll(secondi, TimeUnit.SECONDS);
-        if (msg == null) throw new Exception("TIMEOUT");
+        if (msg == null) 
+        	throw new Exception("TIMEOUT");
         return msg;
     }
 
+    /** Avvia un timer per il giocatore, che conta alla rovescia i secondi rimasti per una decisione.
+	 * Il timer aggiorna continuamente il tempo rimanente e lo comunica a tutti i giocatori, così l'interfaccia può mostrarlo.
+	 * Se il timer scade, interrompe l'attesa del giocatore e forza una scelta automatica.
+	 **/
     private void avviaTimer(int secondi) {
         fermaTimer(); 
         timerThread = new Thread(() -> {
@@ -91,18 +128,26 @@ public class ClientHandler implements Runnable {
         timerThread.start();
     }
 
+    /** Ferma il timer personale del giocatore, se è attivo.
+     * Usato quando il giocatore prende una decisione prima dello scadere del tempo, per evitare che il timer continui a contare e crei confusione.
+     **/
     private void fermaTimer() {
-        if (timerThread != null && timerThread.isAlive()) timerThread.interrupt(); 
+        if (timerThread != null && timerThread.isAlive()) 
+        	timerThread.interrupt(); 
         secondiAttesaPersonale = 0;
     }
 
+    /** Il metodo principale del thread, che gestisce l'interazione con il client.
+     * 
+     */
     @Override
     public void run() {
         try {
             out = new ObjectOutputStream(socket.getOutputStream());
             in = new ObjectInputStream(socket.getInputStream());
             
-            // IL THREAD LETTORE (Ascolta la Chat e l'uscita in tempo reale)
+            /*il thread secondario si occupa di leggere i messaggi in arrivo dal client e metterli in coda, 
+            così il thread principale può gestirli con calma e rispettare i timeout*/
             new Thread(() -> {
                 try {
                     while (true) {
@@ -124,20 +169,27 @@ public class ClientHandler implements Runnable {
             
             String nickRichiesto = codaMessaggi.take();
             this.nickname = room.ottieniNicknameUnico(nickRichiesto);
-            
             room.aggiungiSpettatore(this);
-            // ==========================================
-            // LA SALA D'ATTESA RIGOROSA 
-            // ==========================================
+           
+            /* Se la partita è già in corso, il nuovo arrivato diventa spettatore e aspetta la fine del round per sedersi.
+			 * Se la stanza è piena, il nuovo arrivato entra in coda come spettatore e aspetta che si liberi un posto.
+			 */
             boolean inCoda = false;
             while (true) {
                 if (room.isPartitaInCorso()) {
                     inviaStato(GameState.FaseGioco.ATTESA, "Mano in corso... Attendi la fine del round per sederti.", false, false, 0);
-                    try { room.attendiProssimoRound(); } catch (InterruptedException e) { throw new Exception("Disconnesso"); }
+                    try { 
+                    	room.attendiProssimoRound(); 
+                    	} catch (InterruptedException e) { 
+                    		throw new Exception("Disconnesso"); 
+                    		}
                 }
 
                 int postiOccupati = 0;
-                synchronized(room.getGiocatoriSeduti()) { postiOccupati = room.getGiocatoriSeduti().size(); }
+                
+                synchronized(room.getGiocatoriSeduti()) { 
+                	postiOccupati = room.getGiocatoriSeduti().size(); 
+                }
 
                 if (postiOccupati < 4) break; 
                 
@@ -146,15 +198,14 @@ public class ClientHandler implements Runnable {
                     inCoda = true;
                 }
                 forzaAggiornamentoVisivo(); 
-                try { Thread.sleep(2000); } catch (InterruptedException ex) {}
+                try { 
+                		Thread.sleep(2000);
+                	} catch (InterruptedException ex) {}
             }
             
             room.rimuoviSpettatore(this);
             room.aggiungiGiocatore(this); 
-            
-            // ==========================================
-            // IL CICLO DI GIOCO PRINCIPALE
-            // ==========================================
+           
             while (true) {
                 mani.clear(); inGioco = false; 
                 inviaStato(GameState.FaseGioco.ATTESA, "In attesa del prossimo round...", true, false, 0);
@@ -213,12 +264,15 @@ public class ClientHandler implements Runnable {
                     try {
                         while(true) {
                             String risp = leggiConTimeout(15);
-                            if (risp.equalsIgnoreCase("esci")) throw new Exception("Uscita Volontaria");
+                            if (risp.equalsIgnoreCase("esci")) 
+                            	throw new Exception("Uscita Volontaria");
                             fermaTimer();
                             if (risp.equalsIgnoreCase("si") && fiches >= costoAssic) {
                                 assicurazione = costoAssic; fiches -= assicurazione;
                                 inviaTestoDiretto(dealerHaBlackjack ? "🛡️ Assicurazione paga!" : "❌ Assicurazione persa.");
-                                if (dealerHaBlackjack) fiches += (assicurazione * 3);
+                                
+                                if (dealerHaBlackjack) 
+                                	fiches += (assicurazione * 3);
                             }
                             break;
                         }
@@ -228,7 +282,8 @@ public class ClientHandler implements Runnable {
                     }
                 }
 
-                if (room.getHandValue(manoPrincipale.carte) == 21) manoPrincipale.blackjack = true;
+                if (room.getHandValue(manoPrincipale.carte) == 21) 
+                	manoPrincipale.blackjack = true;
 
                 if (!dealerHaBlackjack) {
                     for (int i = 0; i < mani.size(); i++) {
@@ -261,8 +316,10 @@ public class ClientHandler implements Runnable {
                                         manoAttuale.sballata = (room.getHandValue(manoAttuale.carte) > 21); 
                                         if (manoAttuale.sballata) {
                                             inviaTestoDiretto("Sballato! Hai superato 21.");
-                                            // LA PAUSA MAGICA: Aspetta 2.5 secondi per farti vedere la carta fatale!
-                                            try { Thread.sleep(2500); } catch (Exception ex) {} 
+                            
+                                            try { 
+                                            	Thread.sleep(2500);
+                                            	} catch (Exception ex) {} 
                                         }
                                         turnoAttivo = false; 
                                     } 
@@ -271,8 +328,10 @@ public class ClientHandler implements Runnable {
                                 } else if (cmd.equalsIgnoreCase("raddoppio") && canDouble) {
                                     fiches -= manoAttuale.scommessa; manoAttuale.scommessa *= 2; 
                                     manoAttuale.carte.add(room.getDeck().drawCard());
+                                    
                                     if (room.getHandValue(manoAttuale.carte) > 21) manoAttuale.sballata = true;
-                                    turnoAttivo = false; room.aggiornaTavolo(); 
+                                    turnoAttivo = false; room.aggiornaTavolo();
+                                    
                                 } else if (cmd.equalsIgnoreCase("split") && canSplit) {
                                     fiches -= manoAttuale.scommessa; Mano nuovaMano = new Mano(manoAttuale.scommessa);
                                     nuovaMano.carte.add(manoAttuale.carte.remove(1)); 
@@ -299,7 +358,8 @@ public class ClientHandler implements Runnable {
                 
                 for (Mano mano : mani) {
                     int pTot = room.getHandValue(mano.carte);
-                    if (mano.sballata) continue; 
+                    if (mano.sballata) 
+                    	continue; 
                     if (mano.blackjack && !dealerHaBlackjack){
                     	fiches += (int)(mano.scommessa * 2.5); 
                     	haVintoAlmenoUnaMano = true;
@@ -314,34 +374,39 @@ public class ClientHandler implements Runnable {
                 }
                 
                 if (haVintoAlmenoUnaMano) {
-                    // Piccolo trucco: isPartitaInCorso è false solo a fine mano, così evita doppi conteggi
                     room.registraVittoria(this.nickname);
                }
 
                 if (fiches <= 0) {
                     inviaStato(GameState.FaseGioco.ATTESA, "BANCAROTTA! Hai perso tutto. Game Over.", true, true, 0);
-                    // LA PAUSA SALVA-VITA: Lascia la finestra aperta 6 secondi prima di chiuderla
-                    try { Thread.sleep(6000); } catch (Exception ex) {} 
+                    try { 
+                    	Thread.sleep(6000); 
+                    	} catch (Exception ex) {} 
                     break; 
                 } else {
                     inviaStato(GameState.FaseGioco.FINE_MANO, "Partita conclusa! Prossima mano in arrivo...", true, true, 0);
                     room.attendiFineRisultati(); 
                 }
             } 
-        } catch (Exception e) { e.printStackTrace(); } 
+        } catch (Exception e) { /*e.printStackTrace();*/ } 
         finally { 
             fermaTimer();
-            // LA CORREZIONE SALVAVITA: Passiamo 'inGioco' per non far crollare il tavolo se esce uno spettatore!
             room.aPlayerLeft(inGioco, faseAttuale == GameState.FaseGioco.ATTESA || faseAttuale == GameState.FaseGioco.FINE_MANO); 
             
             room.rimuoviGiocatore(this); 
             room.rimuoviSpettatore(this);
             
             inviaTestoDiretto("DISCONNESSIONE");
-            try { socket.close(); } catch (IOException ex) {}
+            try { 
+            	socket.close(); 
+            	} catch (IOException ex) {}
         }
     }
 
+    /** Invia lo stato di gioco aggiornato al client, con tutte le informazioni necessarie per visualizzare correttamente la situazione attuale.
+	 * Questo metodo è sincronizzato per evitare che più thread inviino stati contrastanti o incompleti.
+	 * Il metodo raccoglie tutte le informazioni rilevanti e le invia al client in un unico oggetto GameState.
+	 **/
     private synchronized void inviaStato(GameState.FaseGioco fase, String msg, boolean fineTurno, boolean finePartita, int manoIdx) throws IOException {
         this.faseAttuale = fase; this.msgAttuale = msg; this.fineTurnoAttuale = fineTurno;
         this.finePartitaAttuale = finePartita; this.manoIdxAttuale = manoIdx;
@@ -349,7 +414,9 @@ public class ClientHandler implements Runnable {
         Map<String, List<List<String>>> avversari = new HashMap<>();
         Map<String, List<Integer>> scommesseAvversari = new HashMap<>();
         List<ClientHandler> copiaGiocatori;
-        synchronized(room.getGiocatoriSeduti()) { copiaGiocatori = new ArrayList<>(room.getGiocatoriSeduti()); }
+        synchronized(room.getGiocatoriSeduti()) { 
+        	copiaGiocatori = new ArrayList<>(room.getGiocatoriSeduti()); 
+        	}
         
         for (ClientHandler altro : copiaGiocatori) {
             if (altro != this && altro.getNickname() != null) {

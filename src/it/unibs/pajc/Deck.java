@@ -7,8 +7,13 @@ public class Deck {
     private List<Card> cards = new ArrayList<>();
     private final int NUMERO_DI_MAZZI = 4;
 
-    public Deck() { reset(); }
+    public Deck() { 
+    	reset();
+    	}
 
+    /** Ricostruisce il mazzo con 4 mazzi standard (52 carte ciascuno) e mescola le carte. 
+	 * Viene chiamato quando il mazzo è vuoto o quasi vuoto per garantire che ci siano sempre abbastanza carte per giocare.
+	 */
     public synchronized void reset() {
         cards.clear();
         String[] suits = {"Cuori", "Quadri", "Fiori", "Picche"};
@@ -26,5 +31,7 @@ public class Deck {
         return cards.remove(0);
     }
 
-    public synchronized int getRemainingCards() { return cards.size(); }
+    public synchronized int getRemainingCards() { 
+    	return cards.size(); 
+    	}
 }

@@ -2,7 +2,6 @@ package it.unibs.pajc;
 
 import javax.swing.*;
 import javax.swing.border.TitledBorder;
-
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -12,7 +11,7 @@ import java.util.Map;
 
 public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
-	private static final String FONT_GIOCO = "Georgia";
+    private static final String FONT_GIOCO = "Georgia";
     private Client client; 
     private boolean isHost;
     
@@ -20,7 +19,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private Map<String, Image> cacheFichesPiccole = new HashMap<>();
     private Map<String, Image> cacheFichesGrandi = new HashMap<>();
     
- // LA BANDIERINA SALVAVITA PER IL POPUP:
+    // LA BANDIERINA SALVAVITA PER IL POPUP:
     private boolean bancarottaMostrata = false;
 
     // Componenti dell'Interfaccia
@@ -55,23 +54,24 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
     // Costruttore: riceve il nickname direttamente dalla schermata di Login
     public BlackjackGUI(String nickname, String ipAddress, boolean isHost) {
-		super("Blackjack - Giocatore: " + nickname);
-		this.isHost = isHost;
+        super("Blackjack - Giocatore: " + nickname);
+        this.isHost = isHost;
         
-    	this.setUndecorated(true); // rimuove barra windows
-    	
-    	try {
-    	    // Carica l'immagine dal tuo folder images
-    	    ImageIcon imgIcon = new ImageIcon("images/A_di_Picche.png"); 
-    	    // Imposta l'icona della finestra (quella che appare nella barra delle applicazioni)
-    	    this.setIconImage(imgIcon.getImage());
-    	} catch (Exception e) {
-    	    System.out.println("Impossibile caricare l'icona del gioco.");
-    	}
-    	
-    	setSize(1200, 800);
+        this.setUndecorated(true); // rimuove barra windows
+        
+        try {
+            // Carica l'immagine dal tuo folder images
+            ImageIcon imgIcon = new ImageIcon("images/A_di_Picche.png"); 
+            // Imposta l'icona della finestra (quella che appare nella barra delle applicazioni)
+            this.setIconImage(imgIcon.getImage());
+        } catch (Exception e) {
+            System.out.println("Impossibile caricare l'icona del gioco.");
+        }
+        
+        setSize(1200, 800);
         setResizable(false); // Blocca la dimensione della finestra
-     // ==========================================
+
+        // ==========================================
         // GESTIONE CHIUSURA FINESTRA (HOST vs CLIENT)
         // ==========================================
         if (this.isHost) {
@@ -82,6 +82,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             // Se sei un giocatore normale, chiudere la finestra spegne tutto.
             setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         }
+        
         setLayout(new BorderLayout());
         setLocationRelativeTo(null); // Centra la finestra
 
@@ -113,6 +114,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         // ==========================================
         JPanel panelInfo = new JPanel(new BorderLayout());
         panelInfo.setBackground(new Color(34, 40, 49));
+        
         // Questo colora lo sfondo principale della finestra, così niente "grigio" sotto il tavolo!
         this.getContentPane().setBackground(new Color(0, 60, 0));
         panelInfo.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20)); // Spazio ai lati
@@ -137,7 +139,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelInfo.addMouseListener(trascinamentoWindow);
         panelInfo.addMouseMotionListener(trascinamentoWindow);
         
-     // 1. A SINISTRA: Nome Giocatore + Fiches
+        // 1. A SINISTRA: Nome Giocatore + Fiches
         JPanel panelSinistra = new JPanel(new GridLayout(2, 1)); // Crea una colonnina con 2 posti
         panelSinistra.setOpaque(false);
 
@@ -230,7 +232,8 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelBanco = new JPanel(new FlowLayout());
         panelBanco.setOpaque(false);
         panelBanco.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "BANCO", 0, 0, null, Color.WHITE));
-     // Creiamo il bordo per il Banco
+        
+        // Creiamo il bordo per il Banco
         TitledBorder bordoBanco = BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "BANCO");
         bordoBanco.setTitleFont(new Font(FONT_GIOCO, Font.BOLD, 14)); // APPLICA IL TUO FONT!
         bordoBanco.setTitleColor(Color.WHITE);
@@ -244,7 +247,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.setOpaque(false);
         panelGiocatore.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "LE TUE MANI", 0, 0, null, Color.WHITE));
 
-     // ==========================================
+        // ==========================================
         // ASSEMBLAGGIO DINAMICO DEL TAVOLO
         // ==========================================
         JPanel topTavolo = new JPanel();
@@ -422,9 +425,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             client.inviaComando("CLASSIFICA");
         });
         
-       
         panelExit.add(btnClassifica);
-        
         panelExit.add(btnToggleChat);
         panelExit.add(btnEsci);
 
@@ -432,7 +433,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelSouthContainer.add(panelComandi, BorderLayout.CENTER);
         panelSouthContainer.add(panelExit, BorderLayout.EAST);
         
-     // ==========================================
+        // ==========================================
         // PANNELLO CHAT LATERALE (A DESTRA)
         // ==========================================
         panelChat = new JPanel(new BorderLayout());
@@ -479,7 +480,6 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         add(panelChat, BorderLayout.EAST); // Aggiunge la chat a destra del tavolo verde!
         
         add(panelSouthContainer, BorderLayout.SOUTH);
-        
     }
 
     @Override
@@ -521,7 +521,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         this.statoAttuale = state;
         
         // Aggiorna il testo centrale filtrando i messaggi "tecnici" del Server
-     // ==========================================
+        // ==========================================
         // GESTIONE MESSAGGI ED ESITO FINALE GIGANTE!
         // ==========================================
         if (state.isFinePartita() && !state.getManiGiocatore().isEmpty()) {
@@ -595,8 +595,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.removeAll();
         panelAvversari.removeAll();
         
-      //ridimensionamento delle mani (SPLIT)
-        
+        //ridimensionamento delle mani (SPLIT)
         List<List<String>> mani = state.getManiGiocatore();
         double scaleFactor = 1.0; 
         
@@ -759,7 +758,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.revalidate();
         panelGiocatore.repaint();
         
-     // ==========================================
+        // ==========================================
         // POPUP DI BANCAROTTA (Lucchetto di Titanio!)
         // ==========================================
         if (state.getFiches() <= 0 && state.getMessaggioAvviso() != null && state.getMessaggioAvviso().contains("BANCAROTTA")) {
@@ -902,7 +901,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         container.setOpaque(false);
 
         int size = piccole ? 30 : 50;
-     // 8 pixel di spazio per le piccole, 12 o 14 pixel per le grandi!
+        // 8 pixel di spazio per le piccole, 12 o 14 pixel per le grandi!
         int yOffset = piccole ? 8 : 12;
 
         // 1. Calcoliamo quante fiches servono
@@ -913,7 +912,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         // Salviamo le immagini pronte da disegnare
         java.util.List<Image> fichesDaDisegnare = new java.util.ArrayList<>();
 
-     // ==========================================
+        // ==========================================
         // CARICAMENTO INTELLIGENTE DALLA CACHE
         // ==========================================
         for (int i = 0; i < valori.length; i++) {
@@ -940,30 +939,28 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         }
         
-     // ... fine del ciclo for ...
-
-    // ==========================================
-    // GESTIONE "SPICCIOLI" (Resto < 50)
-    // ==========================================
-    // Se avanza un resto che è più piccolo della nostra fiche minima (es. 25$, 30$),
-    // stampiamo un'ultima fiche (la più piccola che abbiamo, in questo caso files[3]) per rappresentarlo visivamente.
-    if (resto > 0) {
-        String nomeFile = files[files.length - 1]; // Prende l'ultima fiche dell'array (chipBlack.png)
-        
-        java.util.Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
-        
-        if (!cacheGiusta.containsKey(nomeFile)) {
-            ImageIcon icona = new ImageIcon("images/" + nomeFile);
-            if (icona.getIconWidth() != -1) {
-                Image img = icona.getImage().getScaledInstance(size, size, Image.SCALE_SMOOTH);
-                cacheGiusta.put(nomeFile, img);
+        // ==========================================
+        // GESTIONE "SPICCIOLI" (Resto < 50)
+        // ==========================================
+        // Se avanza un resto che è più piccolo della nostra fiche minima (es. 25$, 30$),
+        // stampiamo un'ultima fiche (la più piccola che abbiamo, in questo caso files[3]) per rappresentarlo visivamente.
+        if (resto > 0) {
+            String nomeFile = files[files.length - 1]; // Prende l'ultima fiche dell'array (chipBlack.png)
+            
+            java.util.Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
+            
+            if (!cacheGiusta.containsKey(nomeFile)) {
+                ImageIcon icona = new ImageIcon("images/" + nomeFile);
+                if (icona.getIconWidth() != -1) {
+                    Image img = icona.getImage().getScaledInstance(size, size, Image.SCALE_SMOOTH);
+                    cacheGiusta.put(nomeFile, img);
+                }
+            }
+            
+            if (cacheGiusta.containsKey(nomeFile)) {
+                fichesDaDisegnare.add(cacheGiusta.get(nomeFile));
             }
         }
-        
-        if (cacheGiusta.containsKey(nomeFile)) {
-            fichesDaDisegnare.add(cacheGiusta.get(nomeFile));
-        }
-    }
 
         // 2. Calcoliamo l'altezza TOTALE esatta della pila (non taglierà mai niente!)
         int altezzaPila = fichesDaDisegnare.isEmpty() ? size : size + ((fichesDaDisegnare.size() - 1) * yOffset);
@@ -990,13 +987,13 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
             @Override
             public Dimension getPreferredSize() {
-                // Comunica a Java la grandezza ESATTA del blocco, impedendo i tagli!
+                
                 return new Dimension(size, altezzaPila);
             }
         };
         panelStack.setOpaque(false);
 
-        // 4. Il testo con il totale
+        //Il testo con il totale
         JLabel lblTesto = new JLabel(totale + "$");
         lblTesto.setForeground(new Color(255, 215, 0));
         lblTesto.setFont(new Font(FONT_GIOCO, Font.BOLD, piccole ? 14 : 18));
@@ -1027,9 +1024,6 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     }
 
     public static void main(String[] args) {
-        // ==========================================
-        // TRUCCO 1: ATTIVIAMO IL TEMA GRAFICO MODERNO!
-        // ==========================================
         try {
             for (UIManager.LookAndFeelInfo info : UIManager.getInstalledLookAndFeels()) {
                 if ("Nimbus".equals(info.getName())) {
@@ -1044,7 +1038,6 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         SwingUtilities.invokeLater(() -> avviaSchermataDiLogin());
     }
 
- 
     private static void avviaSchermataDiLogin() {
         JFrame loginFrame = new JFrame();
         loginFrame.setSize(800, 700); 
@@ -1072,13 +1065,13 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         };
 
-        // Sistema di trascinamento finestra
-        java.awt.event.MouseAdapter dragger = new java.awt.event.MouseAdapter() {
+        
+        MouseAdapter dragger = new MouseAdapter() {
             int mouseX, mouseY;
-            public void mousePressed(java.awt.event.MouseEvent e) {
+            public void mousePressed(MouseEvent e) {
                 mouseX = e.getX(); mouseY = e.getY();
             }
-            public void mouseDragged(java.awt.event.MouseEvent e) {
+            public void mouseDragged(MouseEvent e) {
                 loginFrame.setLocation(e.getXOnScreen() - mouseX, e.getYOnScreen() - mouseY);
             }
         };
@@ -1096,30 +1089,26 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnClose.setCursor(new Cursor(Cursor.HAND_CURSOR));
         btnClose.addActionListener(e -> System.exit(0)); 
         backgroundPanel.add(btnClose);
-
-        // ==========================================
-        // UI DA VIDEOGIOCO: LARGHE E SENZA LABEL
-        // ==========================================
         Color colorOro = new Color(255, 191, 0); 
-        Color colorBgInput = new Color(10, 10, 10, 210); // Nero opaco elegante
+        Color colorBgInput = new Color(10, 10, 10, 210); 
 
-        // --- NOME GIOCATORE (Con Placeholder) ---
+        // --- NOME GIOCATORE ---
         JTextField txtNick = new JTextField("INSERISCI NICKNAME");
         txtNick.setBounds(260, 530, 280, 40);
         txtNick.setFont(new Font("Georgia", Font.BOLD, 16));
-        txtNick.setForeground(Color.GRAY); // Testo grigio finché non scrivi
+        txtNick.setForeground(Color.GRAY);
         txtNick.setCaretColor(Color.WHITE);
         txtNick.setBackground(colorBgInput);
         txtNick.setOpaque(true);
         txtNick.setBorder(BorderFactory.createLineBorder(colorOro, 2)); // Bordo d'oro!
         txtNick.setHorizontalAlignment(JTextField.CENTER);
 
-        // Effetto a scomparsa quando ci clicchi (Placeholder)
+        
         txtNick.addFocusListener(new java.awt.event.FocusAdapter() {
             public void focusGained(java.awt.event.FocusEvent evt) {
                 if (txtNick.getText().equals("INSERISCI NICKNAME")) {
                     txtNick.setText("");
-                    txtNick.setForeground(Color.WHITE); // Il tuo testo diventa bianco luminoso
+                    txtNick.setForeground(Color.WHITE);
                 }
             }
             public void focusLost(java.awt.event.FocusEvent evt) {
@@ -1131,7 +1120,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         });
         backgroundPanel.add(txtNick);
 
-        // --- INDIRIZZO SERVER (Con Placeholder) ---
+        
         JTextField txtIp = new JTextField("IP SERVER (localhost per Hostare)");
         txtIp.setBounds(260, 580, 280, 40);
         txtIp.setFont(new Font("Georgia", Font.BOLD, 14));
@@ -1158,7 +1147,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         });
         backgroundPanel.add(txtIp);
 
-        // bottone start
+        // bottone start serve per avviare la partita
         JButton btnStart = new JButton("START GAME") {
             @Override
             protected void paintComponent(Graphics g) {
@@ -1220,10 +1209,10 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
         JTextArea txtSpiegazione = new JTextArea();
         txtSpiegazione.setText("COME FUNZIONA LA CONNESSIONE?\n\n"
-            + "👑 CREA UNA TUA PARTITA (HOST):\n"
+            + "CREA UNA TUA PARTITA (HOST):\n"
             + "Lascia la casella IP su 'localhost'. Il gioco avvierà\n"
             + "il server in automatico e aprirà il tavolo.\n\n"
-            + "🤝 UNISCITI A UN AMICO (JOIN):\n"
+            + "UNISCITI A UN AMICO (JOIN):\n"
             + "Vuoi giocare al tavolo creato da un tuo amico?\n"
             + "Cancella 'localhost', scrivi il suo indirizzo IP\n"
             + "(es. 192.168.1.55) e premi START GAME.");
@@ -1237,7 +1226,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         pannelloInfo.add(txtSpiegazione, BorderLayout.CENTER);
         backgroundPanel.add(pannelloInfo);
 
-        // tatso info
+        // tasto info
         JButton btnInfo = new JButton("?");
         btnInfo.setBounds(10, 10, 40, 40); 
         btnInfo.setFont(new Font("Georgia", Font.BOLD, 22));
@@ -1274,8 +1263,11 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         loginFrame.setVisible(true);
     }
 
-    // se l'utente lascia localhost, allora capisce che sta facendo anche da server e avvia automaticamente la classe Server.java
- // se l'utente lascia localhost, allora capisce che sta facendo anche da server e avvia automaticamente la classe Server.java
+    /**
+	 * Questo metodo gestisce la logica di avvio del gioco in base all'IP inserito:
+	 * - Se l'IP è "localhost", prova a connettersi al server locale. Se non trova un server attivo, lo avvia lui stesso e si connette come Host.
+	 * - Se l'IP è diverso, si connette come Client al server remoto specificato.
+	 */
     private static void gestisciStartAutomatico(String nick, String ip) {
         if (ip.equalsIgnoreCase("localhost")) {
             boolean serverGiaAttivo = false;

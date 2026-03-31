@@ -8,8 +8,9 @@ import java.util.List;
 import java.util.Map;
 
 public class ServerModel {
-    public enum StatoServer { LOBBY, SCOMMESSE, GIOCO, RISULTATI }
-    private volatile StatoServer statoServer = StatoServer.LOBBY;
+    
+	public enum StatoServer { LOBBY, SCOMMESSE, GIOCO, RISULTATI }
+    private volatile StatoServer statoServer = StatoServer.LOBBY; //volatile: perchè così nessuno si salva nella cache il vecchio stato
     
     private final Deck deck = new Deck();
     private final List<Card> dealerHand = Collections.synchronizedList(new ArrayList<>());
@@ -24,13 +25,26 @@ public class ServerModel {
     private boolean timerAvviato = false;
     private int giocatoriInAttesa = 0, giocatoriInGioco = 0, giocatoriCheHannoFinito = 0, giocatoriProntiPerCarte = 0;
     private volatile int secondiAttesa = 0;
-
+    
     public Deck getDeck() { return deck; }
     public List<Card> getDealerHand() { return dealerHand; }
     public int getDealerScore() { return getHandValue(dealerHand); }
     public int getSecondiAttesa() { return secondiAttesa; }
     public List<ClientHandler> getGiocatoriSeduti() { return giocatoriSeduti; }
 
+    /** 
+    Costruttore: se esiste già un file "classifica.txt", 
+    lo cancella per azzerare la classifica all'avvio di un nuovo server. 
+    **/
+    public ServerModel() {
+        File fileClassifica = new File("classifica.txt");
+        if (fileClassifica.exists()) {
+            fileClassifica.delete();
+            System.out.println("Nuovo Server avviato: Vecchia classifica azzerata!");
+        }
+    }
+    
+    /** Calcola il valore totale di una mano, gestendo gli assi come 1 o 11 a in base al contesto. **/
     public int getHandValue(List<Card> hand) {
         int total = 0, aceCount = 0;
         List<Card> copiaMano;
@@ -43,6 +57,7 @@ public class ServerModel {
         return total;
     }
 
+    /** Metodo per garantire nickname unici: se "Luca" è già preso, diventa "Luca_2", poi "Luca_3", e così via.**/
     public String ottieniNicknameUnico(String baseNick) {
         String nick = baseNick;
         int counter = 2;
@@ -68,6 +83,9 @@ public class ServerModel {
         aggiornaTavolo(); 
     }
     
+    /** Metodo per la rimozione di un giocatore, se non ci sono più giocatori seduti, 
+        facciamo un reset completo dello stato del server per evitare "tavoli sospesi".
+     **/
     public synchronized void rimuoviGiocatore(ClientHandler c) {
         giocatoriSeduti.remove(c);
         if (giocatoriSeduti.isEmpty()) {
@@ -85,31 +103,34 @@ public class ServerModel {
         }
     }
 
+    /** Metodo per forzare l'aggiornamento visivo di tutti i client, sia giocatori che spettatori. **/
     public void aggiornaTavolo() {
         List<ClientHandler> copiaSicura;
         synchronized(giocatoriSeduti) { copiaSicura = new ArrayList<>(giocatoriSeduti); }
         for (ClientHandler ch : copiaSicura) ch.forzaAggiornamentoVisivo();
         
-        // AGGIUNGI QUESTO BLOCCO: Aggiorna lo schermo anche a chi è in tribuna!
         List<ClientHandler> copiaSpettatori;
         synchronized(spettatori) { copiaSpettatori = new ArrayList<>(spettatori); }
         for (ClientHandler ch : copiaSpettatori) ch.forzaAggiornamentoVisivo();
     }
 
-    // ==========================================
-    // IL BUTTAFUORI DELLA SALA D'ATTESA
-    // ==========================================
+    /** Metodo per verificare se la partita è in corso o se siamo ancora in lobby. 
+        Utile per i client che vogliono sapere se possono sedersi o devono aspettare. 
+     **/
     public boolean isPartitaInCorso() {
         return statoServer != StatoServer.LOBBY;
     }
 
+    /** Metodo per far attendere i client fino alla fine del round corrente, se stanno aspettando in lobby. 
+		Se invece sono già dentro una partita, non devono attendere e possono sedersi subito. 
+	 **/
     public synchronized void attendiProssimoRound() throws InterruptedException {
         while (statoServer != StatoServer.LOBBY) wait();
     }
 
-    // ==========================================
-    // FASE 1: LOBBY E AVVIO SCOMMESSE
-    // ==========================================
+    /** Metodo per far attendere i client che si sono seduti in lobby fino a quando non si apre la fase di scommesse. 
+		Se è già partita una fase di scommesse, chi si siede dopo aspetta il prossimo round. 
+	 **/
     public synchronized void attendiIlTuoTurno() throws InterruptedException {
         while (statoServer != StatoServer.LOBBY) wait();
         
@@ -118,7 +139,8 @@ public class ServerModel {
             timerAvviato = true;
             new Thread(() -> {
                 for (int i = 5; i > 0; i--) {
-                    secondiAttesa = i; aggiornaTavolo();
+                    secondiAttesa = i; 
+                    aggiornaTavolo();
                     try { Thread.sleep(1000); } catch (Exception e) {}
                 }
                 secondiAttesa = 0;
@@ -129,6 +151,9 @@ public class ServerModel {
         while (statoServer == StatoServer.LOBBY) wait(); 
     }
 
+    /** Metodo per aprire la fase di scommesse, se ci sono giocatori in attesa. 
+        Se non ci sono, rimaniamo in lobby. 
+    **/
     public synchronized void apriScommesse() {
         if (giocatoriInAttesa == 0) { timerAvviato = false; return; }
         statoServer = StatoServer.SCOMMESSE;
@@ -138,9 +163,10 @@ public class ServerModel {
         notifyAll(); 
     }
 
-    // ==========================================
-    // FASE 2: GIOCO E CARTE
-    // ==========================================
+    /** Metodo per far attendere i giocatori che hanno scommesso fino a quando tutti non 
+        hanno confermato la scommessa e sono pronti per ricevere le carte. 
+		Quando l'ultimo giocatore conferma, si passa alla fase di gioco e si distribuiscono le carte. 
+	 **/
     public synchronized void confermaScommessaEAttendiCarte() throws InterruptedException {
         giocatoriProntiPerCarte++;
         if (giocatoriProntiPerCarte >= giocatoriInGioco) {
@@ -157,13 +183,14 @@ public class ServerModel {
         }
     }
 
+    /** Metodo per far attendere i giocatori fino a quando non è finita la fase di gioco**/
     public synchronized void attendiFineMano() throws InterruptedException { 
         while (statoServer == StatoServer.GIOCO) wait(); 
     }
 
-    // ==========================================
-    // FASE 3 E 4: FINE TURNO E RISULTATI
-    // ==========================================
+    /** Metodo per far attendere i giocatori fino a quando tutti non hanno finito il loro turno. 
+		Quando l'ultimo giocatore finisce, si passa alla fase dei risultati e si fanno giocare le carte del dealer. 
+	 **/
     public synchronized void fineTurnoGiocatore() { 
         giocatoriCheHannoFinito++; 
         if (statoServer == StatoServer.GIOCO && giocatoriCheHannoFinito >= giocatoriInGioco) {
@@ -190,10 +217,12 @@ public class ServerModel {
         }
     }
 
+    /** Metodo per far attendere i giocatori fino a quando non è finita la fase dei risultati,**/
     public synchronized void attendiFineRisultati() throws InterruptedException {
         while (statoServer == StatoServer.RISULTATI) wait();
     }
 
+    /** Metodo per chiudere la fase dei risultati e tornare in lobby, resettando lo stato del server per il prossimo round. **/
     private synchronized void chiudiRisultatiETornaInLobby() {
         statoServer = StatoServer.LOBBY;
         dealerHand.clear();
@@ -201,11 +230,11 @@ public class ServerModel {
         aggiornaTavolo();
     }
 
-    // ==========================================
-    // FIX TAVOLO FANTASMA E DISCONNESSIONI (Blindato!)
-    // ==========================================
+    /** Metodo da chiamare quando un giocatore lascia la partita, se stava giocando la mano,
+		se era in attesa, o se era solo uno spettatore. 
+		Se a uscire è stato l'ultimo giocatore, facciamo un reset completo dello stato del server e torniamo in lobby. 
+	 **/
     public synchronized void aPlayerLeft(boolean eraInGioco, boolean avevaFinitoIlTurno) {
-        // Se a uscire è stato qualcuno che stava effettivamente giocando la mano
         if (eraInGioco) {
             if (statoServer == StatoServer.SCOMMESSE || statoServer == StatoServer.GIOCO) {
                 giocatoriInGioco--;
@@ -235,17 +264,16 @@ public class ServerModel {
                 }
             }
         } else {
-            // Se a uscire è stato uno spettatore, non distruggiamo la partita di chi gioca!
-            // Lo togliamo solo dalla coda di attesa, se ci era entrato.
             if (statoServer == StatoServer.LOBBY && giocatoriInAttesa > 0) {
                 giocatoriInAttesa--;
             }
         }
     }
     
-    // ==========================================
-    // GESTIONE CHAT MULTIPLAYER
-    // ==========================================
+   /** Metodo per inviare un messaggio di chat a tutti i giocatori seduti al tavolo. 
+		Il messaggio viene formattato come "CHATMSG:💬 [Nickname]: Messaggio" 
+		per essere riconosciuto come messaggio di chat dai client. 
+	 **/
     public void broadcastChat(String mittente, String messaggio) {
         String formatoChat = "CHATMSG:💬 [" + mittente + "]: " + messaggio;
         List<ClientHandler> copiaSicura;
@@ -255,9 +283,9 @@ public class ServerModel {
         }
     }
     
- // ==========================================
-    // GESTIONE CLASSIFICA (LEADERBOARD)
-    // ==========================================
+    /** Metodo per registrare una vittoria di un giocatore, aggiornando un file "classifica.txt" 
+        che tiene traccia del numero di vittorie di ogni giocatore.
+    **/
     public synchronized void registraVittoria(String nickname) {
         if (nickname == null || nickname.trim().isEmpty()) return;
         File file = new File("classifica.txt");
@@ -286,7 +314,10 @@ public class ServerModel {
         } catch (Exception e) {}
     }
 
-    // gestione classifica
+    /** Metodo per ottenere la classifica dei giocatori, leggendo il file "classifica.txt" e 
+        formattando una stringa da inviare ai client. 
+        la classifica viene ordinata dal giocatore con più vittorie a quello con meno vittorie. 
+	 **/
     public synchronized String ottieniClassifica() {
         File file = new File("classifica.txt");
         if (!file.exists()) return "Nessuna vittoria registrata finora.\nGioca per essere il primo!";

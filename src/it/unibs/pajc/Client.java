@@ -8,19 +8,25 @@ public class Client {
     
     private String nickname;
 
-    public Client(GameUpdateListener listener) { this.listener = listener; }
+    public Client(GameUpdateListener listener) 
+    { 
+    	this.listener = listener; 
+    }
 
+    /**
+	 * 1. Tenta di connettersi al server all'IP e porta specificati.
+	 * 2. Se la connessione è stabilita, avvia un thread per ascoltare i messaggi dal server.
+	 * 3. Se l'IP non risponde entro 3 secondi, restituisce false.
+	 */
     public boolean connetti(String ip, int port) {
         try {
-            // 1. Invece di usare new Socket(ip, port) che può bloccarsi per 60 secondi,
-            // creiamo un socket vuoto e impostiamo un TIMEOUT DI 3 SECONDI (3000 millisecondi)
             Socket socket = new Socket();
             socket.connect(new java.net.InetSocketAddress(ip, port), 3000); 
             
             out = new ObjectOutputStream(socket.getOutputStream());
-            out.flush(); // Buona prassi di rete per evitare blocchi
+            out.flush(); // Assicura che l'header dell'ObjectOutputStream venga inviato subito
             
-            // 2. Se arriviamo a questa riga, il Server esiste ed ha accettato in meno di 3 secondi!
+            
             new Thread(() -> {
                 try {
                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream());
@@ -33,22 +39,25 @@ public class Client {
                         }
                     }
                 } catch (Exception e) { 
-                    //listener.sulMessaggioDiTesto("Disconnesso dal server."); 
-                    //System.exit(0);
                 	listener.sulMessaggioDiTesto("DISCONNESSIONE");
                 }
             }).start();
-            
-            return true; // Connesso con successo!
+            return true;
             
         } catch (Exception e) {
-            // 3. Fallisce ISTANTANEAMENTE (o massimo in 3 secondi) se l'IP non risponde!
             return false; 
         }
     }
 
+    /** Invia un comando al server. 
+        Il comando è una stringa che rappresenta l'azione del giocatore (es. "hit", "stand", "raddoppia", o una scommessa numerica).
+	 **/
     public void inviaComando(String cmd) {
-        try { out.writeObject(cmd); out.flush(); } catch (Exception e) { }
+        try { 
+        	out.writeObject(cmd); 
+        	out.flush(); 
+        	} 
+        catch (Exception e) { }
     }
 
 	public String getNickname() {

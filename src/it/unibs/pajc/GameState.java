@@ -22,9 +22,11 @@ public class GameState implements Serializable {
     private Map<String, List<List<String>>> altriGiocatori;
     private Map<String, List<Integer>> scommesseAvversari; // per visualizzare le scommesse degli altri giocatori
     
-    // NUOVO: Timer per l'interfaccia
     private int secondiAttesa;
 
+    /** Costruttore completo per inizializzare lo stato del gioco. 
+	 * Tutti i campi devono essere forniti per garantire che il client abbia tutte le informazioni necessarie per aggiornare la UI correttamente.
+	 */
     public GameState(FaseGioco faseAttuale, List<String> carteDealer, int punteggioDealer,
                      List<List<String>> maniGiocatore, List<Integer> punteggiMani, List<Integer> scommesseMani,
                      int indiceManoAttuale, int fiches, String messaggioAvviso, boolean turnoFinito, boolean finePartita,
@@ -44,7 +46,7 @@ public class GameState implements Serializable {
         this.finePartita = finePartita;
         this.altriGiocatori = altriGiocatori;
         this.scommesseAvversari = scommesseAvversari;
-        this.secondiAttesa = secondiAttesa; // Salvato!
+        this.secondiAttesa = secondiAttesa;
     }
 
     public FaseGioco getFaseAttuale() { return faseAttuale; }
