@@ -5,6 +5,8 @@ import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.io.File;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +21,6 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private Map<String, Image> cacheFichesPiccole = new HashMap<>();
     private Map<String, Image> cacheFichesGrandi = new HashMap<>();
     
-    // LA BANDIERINA SALVAVITA PER IL POPUP:
     private boolean bancarottaMostrata = false;
 
     // Componenti dell'Interfaccia
@@ -52,17 +53,17 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private int puntataAttuale = 0;
     private int timerSecondi = 0;
 
-    // Costruttore: riceve il nickname direttamente dalla schermata di Login
+    //riceve il nickname direttamente dalla schermata di Login
     public BlackjackGUI(String nickname, String ipAddress, boolean isHost) {
         super("Blackjack - Giocatore: " + nickname);
         this.isHost = isHost;
         
-        this.setUndecorated(true); // rimuove barra windows
+        this.setUndecorated(true); // rimuove barra in alto windows
         
         try {
-            // Carica l'immagine dal tuo folder images
+            // Carica l'immagine da images
             ImageIcon imgIcon = new ImageIcon("images/A_di_Picche.png"); 
-            // Imposta l'icona della finestra (quella che appare nella barra delle applicazioni)
+            // Imposta l'icona della finestra
             this.setIconImage(imgIcon.getImage());
         } catch (Exception e) {
             System.out.println("Impossibile caricare l'icona del gioco.");
@@ -71,11 +72,8 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         setSize(1200, 800);
         setResizable(false); // Blocca la dimensione della finestra
 
-        // ==========================================
-        // GESTIONE CHIUSURA FINESTRA (HOST vs CLIENT)
-        // ==========================================
         if (this.isHost) {
-            // Se sei l'Host, chiudere la finestra DISTRUGGE SOLO LA GRAFICA (dispose).
+            // Se sei l'Host, chiudere la finestra distrugge solo la finestra di gioco
             // Il programma Java rimarrà segretamente acceso per tenere in vita il Server!
             setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE); 
         } else {
@@ -83,16 +81,19 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         }
         
-        setLayout(new BorderLayout());
+        setLayout(new BorderLayout()); //da questo momento in poi dividiamo la finestra in 3 aree
         setLocationRelativeTo(null); // Centra la finestra
 
         client = new Client(this); 
         client.setNickname(nickname);
         
+        //creiamo l'interfaccia senza però ancora farla vedere
         inizializzaInterfaccia();
         
+        //client prova a connettersi al server
         boolean connesso = client.connetti(ipAddress, 12345);
         
+        //controlla che effettivamente si sia connesso, altrimenti mostra un messaggio d'errore e chiude il programma
         if (!connesso) {
             JOptionPane.showMessageDialog(null, 
                 "Impossibile collegarsi alla stanza all'indirizzo: " + ipAddress + "\nAssicurati che il Server sia avviato e l'IP sia corretto!", 
@@ -102,46 +103,58 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             System.exit(0); 
         }
         
-        try { Thread.sleep(200); } catch (InterruptedException ex) {}
+        //pausa di 0.2 secondi per dare il tempo al client di stabilire la connessione
+        try { 
+        	Thread.sleep(200); 
+        	} catch (InterruptedException ex) {}
+       
+        //invio il nickname al server
         client.inviaComando(nickname); 
         
+        //ora che è tutto pronto mostriamo la finestra al giocatore
         setVisible(true);
     }
 
     private void inizializzaInterfaccia() {
-        // ==========================================
-        // LA NUOVA BARRA SUPERIORE (Fiches - Messaggio - Timer)
-        // ==========================================
+        
         JPanel panelInfo = new JPanel(new BorderLayout());
         panelInfo.setBackground(new Color(34, 40, 49));
         
-        // Questo colora lo sfondo principale della finestra, così niente "grigio" sotto il tavolo!
         this.getContentPane().setBackground(new Color(0, 60, 0));
-        panelInfo.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20)); // Spazio ai lati
+     
+        //creo dei bordi per distanziare gli elementi dai bordi della finestra
+        panelInfo.setBorder(BorderFactory.createEmptyBorder(10, 20, 10, 20)); 
         
-        // spostare window
+        
+        /*dato che abbiamo tolto la barra di windows dobbiamo creare un modo per poter trascinare la finestra, 
+        e lo facciamo con un MouseAdapter*/
         MouseAdapter trascinamentoWindow = new MouseAdapter() {
             private Point clickIniziale;
 
+            
             @Override
             public void mousePressed(MouseEvent e) {
-                clickIniziale = e.getPoint(); // Salva dove hai cliccato
+                clickIniziale = e.getPoint(); // Salva dove ho cliccato
             }
 
+            // Calcola lo spostamento e muove l'intera finestra
             @Override
             public void mouseDragged(MouseEvent e) {
-                // Calcola lo spostamento e muove l'intera finestra (BlackjackGUI.this)
+                
                 int dragX = e.getXOnScreen();
                 int dragY = e.getYOnScreen();
+                
+                //sposto la finestra tenendo conto però di dove ho premuto all'inizio
                 BlackjackGUI.this.setLocation(dragX - clickIniziale.x, dragY - clickIniziale.y);
             }
         };
+        //serve per ascoltare il click iniziale
         panelInfo.addMouseListener(trascinamentoWindow);
+        //serve per ascoltare il trascinamento del mouse
         panelInfo.addMouseMotionListener(trascinamentoWindow);
         
-        // 1. A SINISTRA: Nome Giocatore + Fiches
         JPanel panelSinistra = new JPanel(new GridLayout(2, 1)); // Crea una colonnina con 2 posti
-        panelSinistra.setOpaque(false);
+        panelSinistra.setOpaque(false); // Rende il pannello trasparente per far vedere lo sfondo del panel
 
         String nomeGiocatore = client.getNickname(); 
         JLabel lblNomeGiocatore = new JLabel("Giocatore: " + nomeGiocatore);
@@ -152,62 +165,64 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         lblFiches.setForeground(new Color(255, 215, 0)); 
         lblFiches.setFont(new Font(FONT_GIOCO, Font.BOLD, 20));
 
+        //aggiungo il nome del giocatore e il numero di fiches disponibili al pannello di sinistra
         panelSinistra.add(lblNomeGiocatore);
         panelSinistra.add(lblFiches);
 
-        // 2. AL CENTRO: Il tabellone messaggi pulito
+        //label per il messaggio del server al centro
         lblMessaggioServer = new JLabel("Connessione in corso...", SwingConstants.CENTER);
         lblMessaggioServer.setForeground(Color.WHITE);
         lblMessaggioServer.setFont(new Font(FONT_GIOCO, Font.BOLD, 26));
         
-        // 3. A DESTRA: Il fantastico Timer Animato!
+        //creazione del timer visivo circolare
         panelTimer = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
+                super.paintComponent(g);// Pulisce il pannello prima di ridisegnare
                 if (timerSecondi > 0) {
                     Graphics2D g2 = (Graphics2D) g;
+                    
+                    //questa riga serve per rendere i bordi del cerchio più liscie
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     
-                    // Sfondo del cerchio (Grigio scuro)
-                    g2.setStroke(new BasicStroke(4));
+                    // Sfondo del cerchio
+                    g2.setStroke(new BasicStroke(4)); //Spessore del bordo
                     g2.setColor(new Color(60, 60, 60));
                     g2.drawOval(5, 5, 50, 50);
                     
-                    // Anello animato (Oro di base, Rosso se < 5 secondi)
+                    // Anello Oro di base, Rosso se < 5 secondi
                     g2.setColor(timerSecondi <= 5 ? new Color(255, 50, 50) : new Color(255, 191, 0));
                     
-                    // Calcola l'angolo (Assumiamo un turno di 15 secondi per il calcolo visivo)
+                    // Calcolo l'angolo dell'arco in base al tempo rimanente
                     int maxSecondi = 15; 
                     int angolo = (int) (((double) timerSecondi / maxSecondi) * 360);
                     if (angolo > 360) angolo = 360; // Evita sbavature grafiche
                     
-                    // Disegna l'arco partendo da ore 12 (90 gradi)
+                    // Disegno l'arco partendo da ore 12 (90 gradi)
                     g2.drawArc(5, 5, 50, 50, 90, angolo);
                 }
             }
         };
-        panelTimer.setPreferredSize(new Dimension(60, 60));
+        panelTimer.setPreferredSize(new Dimension(60, 60)); // Dimensione fissa per il timer
         panelTimer.setOpaque(false);
         panelTimer.setLayout(new BorderLayout());
         
-        // Il numero dentro il cerchio
+        // Il numero dentro il cerchio che inizialmente è vuoto perchè mi manderà il server i numeri
         lblTimer = new JLabel("", SwingConstants.CENTER);
         lblTimer.setFont(new Font(FONT_GIOCO, Font.BOLD, 22));
         lblTimer.setForeground(Color.WHITE);
         panelTimer.add(lblTimer, BorderLayout.CENTER);
         panelTimer.setVisible(false);
 
-        // Assembliamo la barra alta
+        //aggiungo tutto quello che ho creato alla barra alta
         panelInfo.add(panelSinistra, BorderLayout.WEST);
         panelInfo.add(lblMessaggioServer, BorderLayout.CENTER);
         panelInfo.add(panelTimer, BorderLayout.EAST);
         
+        //aggiungo tutto alla finestra
         add(panelInfo, BorderLayout.NORTH);
 
-        // ==========================================
-        // IL TAVOLO VERDE
-        // ==========================================
+        //disegnamo il tavolo verde da 0
         JPanel tavoloVerde = new JPanel(new BorderLayout()) {
             @Override
             protected void paintComponent(Graphics g) {
@@ -218,60 +233,62 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                 int w = getWidth();
                 int h = getHeight();
                 
+                //usiamo questa classe per creare un colore sfumato come se ci fosse una lampada ad illuminare il tavolo
                 RadialGradientPaint paint = new RadialGradientPaint(
                     w / 2f, h / 2f, Math.max(w, h),
+                  //parti con il verde splendente e man mano ti allontani dal centro sfuma sempre di più
                     new float[]{0.0f, 0.8f}, 
                     new Color[]{new Color(0, 140, 0), new Color(0, 40, 0)}
                 );
                 
-                g2d.setPaint(paint);
+                g2d.setPaint(paint); //dipingiamo con il colore che abbiamo creato
                 g2d.fillRect(0, 0, w, h);
             }
         };
         
+        //creiamo il panel per il banco con relativo bordo
         panelBanco = new JPanel(new FlowLayout());
         panelBanco.setOpaque(false);
-        panelBanco.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "BANCO", 0, 0, null, Color.WHITE));
         
         // Creiamo il bordo per il Banco
         TitledBorder bordoBanco = BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "BANCO");
-        bordoBanco.setTitleFont(new Font(FONT_GIOCO, Font.BOLD, 14)); // APPLICA IL TUO FONT!
+        bordoBanco.setTitleFont(new Font(FONT_GIOCO, Font.BOLD, 14)); 
         bordoBanco.setTitleColor(Color.WHITE);
-        
         panelBanco.setBorder(bordoBanco);
+        
+        //creiamo il bordo degli avversari
         panelAvversari = new JPanel(new GridLayout(1, 3, 10, 0)); 
         panelAvversari.setOpaque(false);
         panelAvversari.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY), "AVVERSARI AL TAVOLO", 0, 0, null, Color.LIGHT_GRAY));
 
+        //creiamo il panel del giocatore
         panelGiocatore = new JPanel(new FlowLayout());
         panelGiocatore.setOpaque(false);
         panelGiocatore.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "LE TUE MANI", 0, 0, null, Color.WHITE));
 
-        // ==========================================
-        // ASSEMBLAGGIO DINAMICO DEL TAVOLO
-        // ==========================================
+        //creo un panel per inserire banco e avversari nella parte alta del tavolo
         JPanel topTavolo = new JPanel();
-        topTavolo.setLayout(new BoxLayout(topTavolo, BoxLayout.Y_AXIS)); // Niente più spazi vuoti forzati!
+        topTavolo.setLayout(new BoxLayout(topTavolo, BoxLayout.Y_AXIS)); //usiamo boxlayout per impilare in verticale i componenti 
         topTavolo.setOpaque(false);
         topTavolo.add(panelBanco);
         topTavolo.add(panelAvversari);
 
+        //aggiungo al tavolo la visuale del banco, degli avversari, e del giocatore principale 
         tavoloVerde.add(topTavolo, BorderLayout.NORTH);
         tavoloVerde.add(panelGiocatore, BorderLayout.CENTER); 
         
         add(tavoloVerde, BorderLayout.CENTER);
         
-        // ==========================================
-        // PANNELLO COMANDI (SUD)
-        // ==========================================
+        //creiamo il pannello che conterrà i comandi che il giocatore potrà eseguire
         JPanel panelSouthContainer = new JPanel(new BorderLayout());
         panelSouthContainer.setBackground(Color.LIGHT_GRAY);
         panelSouthContainer.setPreferredSize(new Dimension(1000, 110));
         
+        //pannello dei comandi
         panelComandi = new JPanel(new FlowLayout());
         panelComandi.setOpaque(false);
 
-        // --- BOTTONI AZIONE DI GIOCO ---
+        //bottoni di gioco
         btnCarta = new JButton("Carta");
         btnSto = new JButton("Sto");
         btnRaddoppio = new JButton("Raddoppio");
@@ -279,6 +296,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnSi = new JButton("Sì");
         btnNo = new JButton("No");
 
+        //inviamo al client ogni comando in base al bottone schiacciato
         btnCarta.addActionListener(e -> client.inviaComando("carta"));
         btnSto.addActionListener(e -> client.inviaComando("sto"));
         btnRaddoppio.addActionListener(e -> client.inviaComando("raddoppio"));
@@ -289,7 +307,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         lblTestoComando = new JLabel("Scommessa:");
         lblTestoComando.setFont(new Font(FONT_GIOCO, Font.BOLD, 14));
         
-        // --- BOTTONI SCOMMESSA ---
+        //creiamo il panel per le fiches
         panelFichesScommessa = new JPanel(new FlowLayout());
         panelFichesScommessa.setOpaque(false);
 
@@ -297,15 +315,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         String[] nomiFiches = {"chipBlack.png", "chipBlue.png", "chipGreen.png", "chipPurple.png"};
 
         for (int i = 0; i < valoriFiches.length; i++) {
-            int val = valoriFiches[i];
-            JButton btnChip = creaBottoneFiche(nomiFiches[i], val);
+        	/*creo questa variabile perchè le lambda expression richiedono variabili effective final 
+        	 quindi non posso mettere direttamente nel creaBottoneFiche() valoriFiches[i]*/
+        	int val = valoriFiches[i]; 
+            //creo il bottone e ci incollo sopra l'immagine della fiche
+        	JButton btnChip = creaBottoneFiche(nomiFiches[i], val);
             btnChip.addActionListener(e -> {
                 puntataAttuale += val;
                 lblPuntataAttuale.setText("Totale: " + puntataAttuale + "$");
             });
+            
             panelFichesScommessa.add(btnChip);
         }
-
+        
+        //creo questa label di fianco ai bottoni così da mostrare il totale scommesso
         lblPuntataAttuale = new JLabel("Totale: 0$");
         lblPuntataAttuale.setFont(new Font(FONT_GIOCO, Font.BOLD, 16));
         lblPuntataAttuale.setForeground(new Color(0, 100, 0)); 
@@ -316,6 +339,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             lblPuntataAttuale.setText("Totale: 0$");
         });
 
+        //creazione bottone per scommettere tutto
         btnAllIn = new JButton("All-In");
         btnAllIn.setBackground(new Color(150, 0, 0)); 
         btnAllIn.setForeground(Color.WHITE);
@@ -326,13 +350,15 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                 lblPuntataAttuale.setText("Totale: " + puntataAttuale + "$");
             }
         });
-
+        
+        //creazione del bottone per confermare la puntata
         btnScommetti = new JButton("Conferma Puntata");
         btnScommetti.setBackground(new Color(204, 153, 0)); 
         btnScommetti.setForeground(Color.WHITE);
         btnScommetti.setFont(new Font(FONT_GIOCO, Font.BOLD, 14));
         btnScommetti.addActionListener(e -> {
-            if (statoAttuale != null && puntataAttuale > statoAttuale.getFiches()) {
+            //qui controllo di avere abbastanza fiches per puntare
+        	if (statoAttuale != null && puntataAttuale > statoAttuale.getFiches()) {
                 JOptionPane.showMessageDialog(BlackjackGUI.this, 
                     "Fondi insufficienti!\nStai cercando di puntare " + puntataAttuale + "$, ma hai solo " + statoAttuale.getFiches() + "$.", 
                     "Errore Puntata", 
@@ -353,7 +379,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         });
 
-        // --- IMPOSTA TUTTO COME INVISIBILE DI DEFAULT ---
+        //metto tutto invisibile di default
         btnCarta.setVisible(false);
         btnSto.setVisible(false);
         btnRaddoppio.setVisible(false);
@@ -366,10 +392,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnAllIn.setVisible(false);
         btnScommetti.setVisible(false);
 
-        // ==========================================
-        // ASSEMBLAGGIO FINALE DEL PANNELLO COMANDI
-        // (L'ordine in cui appaiono da sinistra a destra!)
-        // ==========================================
+        //aggiungo tutto al pannello
         panelComandi.add(lblTestoComando);
         panelComandi.add(panelFichesScommessa); 
         panelComandi.add(lblPuntataAttuale);
@@ -383,19 +406,17 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelComandi.add(btnSi);
         panelComandi.add(btnNo);
         
-        // ==========================================
-        // BOTTONE ESCI (ROSSO FUOCO A DESTRA)
-        // ==========================================
+        //creo un panel per il bottone che mi farà uscire
         JPanel panelExit = new JPanel(new FlowLayout(FlowLayout.RIGHT, 15, 5));
         panelExit.setOpaque(false);
         
         JButton btnToggleChat = new JButton("Chat");
-        btnToggleChat.setBackground(new Color(70, 130, 180)); // Un bel blu elegante
+        btnToggleChat.setBackground(new Color(70, 130, 180));
         btnToggleChat.setForeground(Color.WHITE);
         btnToggleChat.setFont(new Font(FONT_GIOCO, Font.BOLD, 14));
         
         btnToggleChat.addActionListener(e -> {
-            // Se è visibile la nasconde, se è nascosta la mostra!
+            //se è visibile la nasconde, se è nascosta la mostra!
             panelChat.setVisible(!panelChat.isVisible());
             
             // Ordiniamo alla finestra di "ridisegnarsi" per fare spazio alla chat
@@ -403,6 +424,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             BlackjackGUI.this.repaint();
         });
         
+        //bottone per l'uscita dal programma
         btnEsci = new JButton("Esci dal Tavolo");
         btnEsci.setBackground(new Color(180, 0, 0)); 
         btnEsci.setForeground(Color.WHITE);
@@ -412,11 +434,11 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnEsci.addActionListener(e -> {
             btnEsci.setEnabled(false); 
             lblMessaggioServer.setText("Arrivederci! Uscita in corso...");
-            // Avvisiamo il server. Il server chiuderà la connessione, 
-            // e scatterà in automatico la magia nel metodo sulMessaggioDiTesto!
+            // avvisiamo il server, il server chiuderà la connessione
             client.inviaComando("esci"); 
         });
         
+        //bottone per la classifica
         JButton btnClassifica = new JButton("Classifica");
         btnClassifica.setBackground(new Color(255, 215, 0)); // Colore oro!
         btnClassifica.setForeground(Color.BLACK);
@@ -425,47 +447,49 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             client.inviaComando("CLASSIFICA");
         });
         
+        //aggiungiamo al panel che abbiamo creato in basso a destra i tre bottoni
         panelExit.add(btnClassifica);
         panelExit.add(btnToggleChat);
         panelExit.add(btnEsci);
 
-        // Aggiungiamo il tutto al container principale in basso
+        //aggiungiamo il tutto al container principale in basso
         panelSouthContainer.add(panelComandi, BorderLayout.CENTER);
         panelSouthContainer.add(panelExit, BorderLayout.EAST);
         
-        // ==========================================
-        // PANNELLO CHAT LATERALE (A DESTRA)
-        // ==========================================
+        //creazione del pannello a scomparsa della chat
         panelChat = new JPanel(new BorderLayout());
-        panelChat.setPreferredSize(new Dimension(280, 0)); // Larghezza fissa, altezza adatta alla finestra
+        panelChat.setPreferredSize(new Dimension(280, 0)); //larghezza fissa, altezza adattata alla finestra
         panelChat.setOpaque(false);
         panelChat.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.WHITE), "CHAT TAVOLO", 0, 0, new Font(FONT_GIOCO, Font.BOLD, 14), Color.ORANGE));
 
+        //creazione di una textArea dove ci saranno i messaggi
         areaChat = new JTextArea();
         areaChat.setEditable(false);
-        areaChat.setLineWrap(true);
-        areaChat.setWrapStyleWord(true);
-        areaChat.setBackground(new Color(20, 20, 20, 200)); // Nero semitrasparente elegante
+        areaChat.setLineWrap(true); //crea un muro che impedisce alla frase di finire fuori dallo schermo 
+        areaChat.setWrapStyleWord(true); //ci permette di mandare a capo in modo intelligente senza spezzare una parola a metà
+        areaChat.setBackground(new Color(20, 20, 20, 200));
         areaChat.setForeground(Color.WHITE);
         areaChat.setFont(new Font("SansSerif", Font.PLAIN, 15));
         areaChat.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 
+        //creiamo la barra laterale per scorrere la chat
         JScrollPane scrollChat = new JScrollPane(areaChat);
         scrollChat.setOpaque(false);
         scrollChat.getViewport().setOpaque(false);
         scrollChat.setBorder(BorderFactory.createEmptyBorder());
 
+        //creazione dello spazio per permettere all'utente di scrivere
         txtInputChat = new JTextField();
         txtInputChat.setBackground(new Color(50, 50, 50));
         txtInputChat.setForeground(Color.WHITE);
-        txtInputChat.setCaretColor(Color.WHITE);
+        txtInputChat.setCaretColor(Color.WHITE); //lineetta lampeggiante classica che ti fa capire che stai scrivendo
         txtInputChat.setFont(new Font("SansSerif", Font.PLAIN, 15));
         txtInputChat.setBorder(BorderFactory.createCompoundBorder(
             BorderFactory.createLineBorder(Color.GRAY),
             BorderFactory.createEmptyBorder(5, 5, 5, 5)
         ));
 
-        // Quando premi INVIO sulla tastiera, invia la chat!
+        //quando premi INVIO sulla tastiera, invia la chat!
         txtInputChat.addActionListener(e -> {
             String txt = txtInputChat.getText().trim();
             if (!txt.isEmpty()) {
@@ -474,6 +498,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         });
 
+        //aggiungiamo tutto al pannello della chat e alla finestra
         panelChat.add(scrollChat, BorderLayout.CENTER);
         panelChat.add(txtInputChat, BorderLayout.SOUTH);
         panelChat.setVisible(false);
@@ -482,17 +507,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         add(panelSouthContainer, BorderLayout.SOUTH);
     }
 
+    
+    /**
+     * creazione di questo metodo per far capire al programma di che messaggio si tratta
+     */
     @Override
     public void sulMessaggioDiTesto(String messaggio) {
         SwingUtilities.invokeLater(() -> {
-            // 1. È UN MESSAGGIO DELLA CHAT?
+            
             if (messaggio.startsWith("CHATMSG:")) {
-                String chatTesto = messaggio.substring(8); // Togliamo il prefisso
+                String chatTesto = messaggio.substring(8); //togliamo il prefisso
                 areaChat.append(chatTesto + "\n");
-                // Scrolla in basso in automatico
+                //scrolla in basso in automatico
                 areaChat.setCaretPosition(areaChat.getDocument().getLength());
             } 
-            // 2. È UN SEGNALE DI DISCONNESSIONE?
             else if (messaggio.equals("DISCONNESSIONE") || messaggio.toLowerCase().contains("disconness")) {
                 if (this.isHost) {
                     BlackjackGUI.this.dispose(); 
@@ -501,17 +529,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                 }
             } 
             else if (messaggio.startsWith("CLASSIFICA_DATI:")) {
-                // FA APPARIRE LA BACHECA!
+                //fa apparire la classifica
                 String dati = messaggio.substring("CLASSIFICA_DATI:".length());
                 JOptionPane.showMessageDialog(this, dati, "🏆 Classifica", JOptionPane.INFORMATION_MESSAGE);
             }
-            // 3. È UN MESSAGGIO NORMALE DEL SERVER
+            //altrimenti è un normale messaggio del server
             else {
                 lblMessaggioServer.setText(messaggio);
             }
         });
     }
 
+    /**
+     * metodo per far in modo di aggiornare la grafica non appena EDT riesce
+     */
     @Override
     public void onStateUpdate(GameState state) {
         SwingUtilities.invokeLater(() -> aggiornaSchermo(state));
@@ -520,12 +551,8 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     private void aggiornaSchermo(GameState state) {
         this.statoAttuale = state;
         
-        // Aggiorna il testo centrale filtrando i messaggi "tecnici" del Server
-        // ==========================================
-        // GESTIONE MESSAGGI ED ESITO FINALE GIGANTE!
-        // ==========================================
+        //prendiamo tutti i dati che ci servono per aggiornare lo schermo nel momento in cui finisce la mano
         if (state.isFinePartita() && !state.getManiGiocatore().isEmpty()) {
-            // LA MANO È FINITA! Calcoliamo l'esito della tua prima mano
             int puntiBanco = state.getPunteggioDealer();
             int puntiMano = state.getPunteggiMani().get(0);
             boolean bancoSballato = (puntiBanco > 21);
@@ -536,31 +563,31 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             String testoEsito = "";
             Color coloreEsito = Color.WHITE;
 
-            // Decidiamo cosa scrivere e di che colore
+            //decidiamo cosa scrivere
             if (giocatoreSballato) {
                 testoEsito = "SBALLATO! HAI PERSO!";
-                coloreEsito = new Color(255, 80, 80); // Rosso acceso
+                coloreEsito = new Color(255, 80, 80); //rosso
             } else if (giocatoreBlackjack && !bancoBlackjack) {
                 testoEsito = "BLACKJACK! HAI VINTO!";
-                coloreEsito = new Color(255, 215, 0); // Oro scintillante
+                coloreEsito = new Color(255, 215, 0); //giallo
             } else if (bancoSballato || puntiMano > puntiBanco) {
                 testoEsito = "HAI VINTO!";
-                coloreEsito = new Color(50, 255, 50); // Verde fluo
+                coloreEsito = new Color(50, 255, 50); //verde
             } else if (puntiMano == puntiBanco) {
                 testoEsito = "PAREGGIO!";
-                coloreEsito = Color.LIGHT_GRAY; // Grigio neutro
+                coloreEsito = Color.LIGHT_GRAY; //grigio
             } else {
                 testoEsito = "IL BANCO VINCE!";
-                coloreEsito = new Color(255, 80, 80); // Rosso acceso
+                coloreEsito = new Color(255, 80, 80); //rosso
             }
 
-            // Applichiamo il testo con un FONT GIGANTE!
+            //applichiamo il testo con un font grosso
             lblMessaggioServer.setText(testoEsito);
             lblMessaggioServer.setForeground(coloreEsito);
-            lblMessaggioServer.setFont(new Font(FONT_GIOCO, Font.BOLD, 38)); // Molto più grande del normale!
+            lblMessaggioServer.setFont(new Font(FONT_GIOCO, Font.BOLD, 38));
 
         } else if (state.getMessaggioAvviso() != null) {
-            // LA PARTITA È IN CORSO: Stile normale
+            //la partita è ancora in corso
             String messaggioPulito = state.getMessaggioAvviso();
             
             if (messaggioPulito.contains("Mossa (Mano")) {
@@ -570,23 +597,21 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
             
             lblMessaggioServer.setText(messaggioPulito);
-            lblMessaggioServer.setForeground(Color.WHITE); // Torna bianco
-            lblMessaggioServer.setFont(new Font(FONT_GIOCO, Font.BOLD, 22)); // Torna alla grandezza normale
+            lblMessaggioServer.setForeground(Color.WHITE); //torna bianco
+            lblMessaggioServer.setFont(new Font(FONT_GIOCO, Font.BOLD, 22)); //grandezza normale
         } else {
             lblMessaggioServer.setText("");
         }
 
-        // ==========================================
-        // AGGIORNA IL TIMER GRAFICO
-        // ==========================================
+        //aggiorniamo il timer grafico
         timerSecondi = state.getSecondiAttesa();
         if (timerSecondi > 0) {
-            lblTimer.setText(String.valueOf(timerSecondi)); // Scrive il numero
-            lblTimer.setForeground(timerSecondi <= 5 ? new Color(255, 50, 50) : Color.WHITE); // Il numero diventa rosso alla fine
+            lblTimer.setText(String.valueOf(timerSecondi)); //scrive il numero
+            lblTimer.setForeground(timerSecondi <= 5 ? new Color(255, 50, 50) : Color.WHITE);
             panelTimer.setVisible(true);
-            panelTimer.repaint(); // Fa girare l'animazione dell'anello
+            panelTimer.repaint(); //fa girare l'animazione dell'anello
         } else {
-            panelTimer.setVisible(false); // Spegne l'orologio se non c'è attesa
+            panelTimer.setVisible(false); //spegne l'orologio se non c'è attesa
         }
 
         lblFiches.setText("Fiches: " + state.getFiches());
@@ -595,40 +620,43 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.removeAll();
         panelAvversari.removeAll();
         
-        //ridimensionamento delle mani (SPLIT)
+        //ridimensionamento delle mani quando facciamo lo split
         List<List<String>> mani = state.getManiGiocatore();
         double scaleFactor = 1.0; 
         
         if (mani.size() == 2) {
-            scaleFactor = 0.80; // Rimpicciolisce all'80%
+            scaleFactor = 0.80; //rimpicciolisce all'80%
         } else if (mani.size() == 3) {
-            scaleFactor = 0.65; // Rimpicciolisce al 65%
+            scaleFactor = 0.65; //rimpicciolisce al 65%
         } else if (mani.size() >= 4) {
-            scaleFactor = 0.50; // Rimpicciolisce al 50%
+            scaleFactor = 0.50; //rimpicciolisce al 50%
         }
         
-        // IL BANCO (Usa la scala normale 1.0 per non rimpicciolire il banco se TU fai split)
+        //il banco usa la scala normale 1.0 per non rimpicciolire il banco anche se il giocatore fa split
         if (!state.getCarteDealer().isEmpty()) {
             int puntiBanco = state.getPunteggioDealer();
             boolean bancoSballato = (puntiBanco > 21);
             boolean bancoBlackjack = (puntiBanco == 21 && state.getCarteDealer().size() == 2 && state.isFinePartita());
             
             String testoBanco = " (Punti: " + puntiBanco + ") ";
-            if (bancoSballato) testoBanco = " (SBALLATO) ";
-            else if (bancoBlackjack) testoBanco = " (BLACKJACK!) ";
+            if (bancoSballato) 
+            	testoBanco = " (SBALLATO) ";
+            else if (bancoBlackjack) 
+            	testoBanco = " (BLACKJACK!) ";
             
             JLabel lblPuntiBanco = new JLabel(testoBanco);
-            lblPuntiBanco.setForeground(bancoSballato ? new Color(255, 80, 80) : (bancoBlackjack ? new Color(50, 255, 50) : Color.WHITE));
+            //operatore ternario per il colore da usare in base alla situazione
+            lblPuntiBanco.setForeground(bancoSballato ? new Color(255, 80, 80) : (bancoBlackjack ? new Color(50, 255, 50) : Color.WHITE)); 
             lblPuntiBanco.setFont(new Font(FONT_GIOCO, Font.BOLD, 16));
             panelBanco.add(lblPuntiBanco);
             
             for (String nomeCarta : state.getCarteDealer()) {
-                // Passiamo 1.0 come fattore di scala al banco (non si rimpicciolisce mai)
+                //passiamo 1.0 come fattore di scala al banco
                 panelBanco.add(creaLabelCarta(nomeCarta, 1.0)); 
             }
         }
 
-        // IL GIOCATORE (Usa lo scaleFactor calcolato)
+        //per ogni mano del giocatore, creiamo un pannello che le contiene tutte e lo aggiungiamo al pannello del giocatore
         for (int i = 0; i < mani.size(); i++) {
             JPanel singolaMano = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 5));
             singolaMano.setOpaque(false);
@@ -648,18 +676,18 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
             JLabel lblPunti = new JLabel(testoPunti);
             lblPunti.setForeground(coloreTesto);
-            // Anche il testo si rimpicciolisce un po' se fai tanti split!
+            //anche il testo si rimpicciolisce un po' se fai tanti split
             lblPunti.setFont(new Font(FONT_GIOCO, Font.BOLD, (int)(15 * scaleFactor))); 
             singolaMano.add(lblPunti);
 
             for (String nomeCarta : mani.get(i)) {
-                // Passiamo lo scaleFactor al metodo che disegna la carta
+                //passiamo lo scaleFactor al metodo che disegna la carta
                 singolaMano.add(creaLabelCarta(nomeCarta, scaleFactor)); 
             }
             
             int scommessa = state.getScommesseMani().get(i);
             if (scommessa > 0) {
-                // Se hai tante mani, rimpiccioliamo anche le fiches usando il parametro 'piccole' = true
+                //se hai tante mani, rimpiccioliamo anche le fiches usando il parametro 'piccole' = true
                 singolaMano.add(creaPannelloFiches(scommessa, scaleFactor < 1.0));
             }
 
@@ -667,9 +695,13 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         }
 
         int sedieOccupate = 0;
+        
+        //per ogni avversario, creiamo un pannello che contiene tutte le sue mani e lo aggiungiamo al pannello degli avversari
         if (state.getAltriGiocatori() != null) {
-            for (Map.Entry<String, List<List<String>>> entry : state.getAltriGiocatori().entrySet()) {
-                if (sedieOccupate >= 3) break; 
+            //utilizziamo questo for in modo che tutti quelli che si aggiungono in pù non vedano le carte così da evitare caos
+        	for (Map.Entry<String, List<List<String>>> entry : state.getAltriGiocatori().entrySet()) {
+                if (sedieOccupate >= 3) 
+                	break; 
 
                 String nick = entry.getKey();
                 List<List<String>> maniAvversario = entry.getValue();
@@ -679,11 +711,9 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                     scommesseAvv = state.getScommesseAvversari().get(nick);
                 }
 
-                // ==========================================
-                // IL NUOVO SLOT DELL'AVVERSARIO (Ordinato!)
-                // ==========================================
+                
                 JPanel slotGiocatore = new JPanel();
-                // Usa un BoxLayout verticale per impilare le mani (es. Split) una sotto l'altra
+                //usiamo un BoxLayout verticale per impilare le mani una sotto l'altra
                 slotGiocatore.setLayout(new BoxLayout(slotGiocatore, BoxLayout.Y_AXIS)); 
                 slotGiocatore.setOpaque(false);
                 slotGiocatore.setBorder(BorderFactory.createTitledBorder(BorderFactory.createLineBorder(Color.GRAY), nick, 0, 0, null, Color.ORANGE));
@@ -697,10 +727,11 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                     for (int m = 0; m < maniAvversario.size(); m++) {
                         List<String> mano = maniAvversario.get(m);
 
-                        // IL TRUCCO DEL VENTAGLIO: Distanza negativa (-20)
+                        //qui creiamo un gap negativo per fare l'effetto ventaglio delle carte
                         int cardGap = -20; 
                         JPanel panelMano = new JPanel(new FlowLayout(FlowLayout.CENTER, cardGap, 5)) {
-                            @Override
+                            //facciamo l'override di questo metodo a causa del gap negativo
+                        	@Override
                             public Dimension getPreferredSize() {
                                 Dimension d = super.getPreferredSize();
                                 d.width += Math.abs(cardGap); 
@@ -710,23 +741,20 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                         panelMano.setOpaque(false);
                         panelMano.setAlignmentX(Component.CENTER_ALIGNMENT);
 
-                        // ==========================================
-                        // LA MAGIA DEGLI ANGOLI: Invertiamo la logica!
-                        // ==========================================
+                        //invertiamo la destra con la sinistra così da vedere le carte in ordine corretto
                         panelMano.setComponentOrientation(ComponentOrientation.RIGHT_TO_LEFT);
 
-                        // 1. Aggiungiamo PRIMA le fiches (che grazie al trucco finiranno all'estrema DESTRA)
+                        //aggiungiamo le fiches che andranno a destra
                         if (scommesseAvv != null && scommesseAvv.size() > m) {
                             int puntata = scommesseAvv.get(m);
                             if (puntata > 0) {
                                 JPanel pnlFiches = creaPannelloFiches(puntata, true);
-                                // Diamo 40 pixel di margine per compensare il gap negativo e staccarle dalle carte
+                                //diamo 40 pixel di margine per compensare il gap negativo e staccarle dalle carte
                                 pnlFiches.setBorder(BorderFactory.createEmptyBorder(0, 40, 0, 0)); 
                                 panelMano.add(pnlFiches);
                             }
                         }
                         for (int c = mano.size() - 1; c >= 0; c--) {
-                            // Gli avversari usano già il metodo 'Piccola', quindi non serve la scala dinamica
                             panelMano.add(creaLabelCartaPiccola(mano.get(c))); 
                         }
                         
@@ -738,6 +766,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         }
 
+        //ciclo che se non c'è nessuno crea delle sedie vuote fittizie
         while (sedieOccupate < 3) {
             JPanel slotVuoto = new JPanel(new BorderLayout());
             slotVuoto.setOpaque(false);
@@ -758,15 +787,13 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         panelGiocatore.revalidate();
         panelGiocatore.repaint();
         
-        // ==========================================
-        // POPUP DI BANCAROTTA (Lucchetto di Titanio!)
-        // ==========================================
+        //ora creiamo un pop-up per la bancarotta
         if (state.getFiches() <= 0 && state.getMessaggioAvviso() != null && state.getMessaggioAvviso().contains("BANCAROTTA")) {
             
             if (!bancarottaMostrata) {
-                bancarottaMostrata = true; // 1. ALZA LA BANDIERINA ISTANTANEAMENTE
+                bancarottaMostrata = true; 
 
-                // 2. Apriamo il pop-up in un canale separato così i "tic" del timer gli rimbalzano addosso!
+                //apriamo il pop-up in un canale separato così i "tic" del timer non creano sfarfallii
                 new Thread(() -> {
                     JOptionPane.showMessageDialog(BlackjackGUI.this, 
                         "Hai esaurito tutte le fiches!\nLa tua partita finisce qui. Grazie per aver giocato.", 
@@ -785,6 +812,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         }
     }
 
+    //in questo metodo gestiamo le varie fasi del gioco con i bottoni
     private void gestisciBottoni(GameState state) {
         GameState.FaseGioco fase = state.getFaseAttuale();
         boolean isScommessa = (fase == GameState.FaseGioco.SCOMMESSA);
@@ -808,24 +836,21 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         btnScommetti.setVisible(isScommessa);
         btnAllIn.setVisible(isScommessa);
         
-        // Li rendiamo sempre visibili durante il tuo turno...
         btnCarta.setVisible(isTurno);
         btnSto.setVisible(isTurno);
         btnRaddoppio.setVisible(isTurno);
         btnSplit.setVisible(isTurno);
         
-        // ==========================================
-        // LA MAGIA DEI TASTI INTELLIGENTI
-        // ==========================================
+        //rendiamo i tasti attivi solo quando possono essere schiacciati
         if (isTurno) {
-            // Carta e Sto si possono fare sempre
+            //carta e sto si possono fare sempre
             btnCarta.setEnabled(true);
             btnSto.setEnabled(true);
             
-            // Leggiamo la frase che ci manda il Croupier (il Server)
+            //leggiamo la frase che ci manda il Server
             String opzioniServer = state.getMessaggioAvviso() != null ? state.getMessaggioAvviso().toLowerCase() : "";
             
-            // Se il Server ci ha concesso le mosse speciali, attiviamo i tasti, altrimenti restano grigi!
+            //se il Server ci ha concesso le mosse speciali, attiviamo i tasti, altrimenti restano grigi!
             btnRaddoppio.setEnabled(opzioniServer.contains("raddoppio"));
             btnSplit.setEnabled(opzioniServer.contains("split"));
         }
@@ -841,22 +866,21 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
     private JLabel creaLabelCarta(String nomeCarta, double scaleFactor) {
         JLabel carta = new JLabel("", SwingConstants.CENTER);
+        //prende il percorso della carta in base al suo nome
         String path = nomeCarta.equals("[CARTA COPERTA]") ? "images/retro.png" : "images/" + nomeCarta.replace(" ", "_") + ".png";
-        
-        // ==========================================
-        // CALCOLO DELLO ZOOM (Scala le tue costanti originali)
-        // ==========================================
+       
         int larghezzaScalata = (int) (LARGHEZZA_CARTA * scaleFactor);
         int altezzaScalata = (int) (ALTEZZA_CARTA * scaleFactor);
         
         ImageIcon iconaOriginale = new ImageIcon(path);
         Dimension dimensioniFisse = new Dimension(larghezzaScalata, altezzaScalata);
 
-        // Imposta i limiti della JLabel usando le nuove dimensioni rimpicciolite
+        //imposta i limiti della JLabel usando dimensioni rimpicciolite
         carta.setPreferredSize(dimensioniFisse);
         carta.setMinimumSize(dimensioniFisse);
         carta.setMaximumSize(dimensioniFisse);
 
+        //se non trova l'immagine invece di esplodere scrive a schermo il nome della carta che manca
         if (iconaOriginale.getIconWidth() == -1) {
             carta.setText("Manca: " + path);
             carta.setBorder(BorderFactory.createLineBorder(Color.RED, 2));
@@ -864,13 +888,18 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             carta.setBackground(Color.WHITE);
         } else {
             Image img = iconaOriginale.getImage();
-            // Rimpicciolisce fisicamente l'immagine
+            //rimpicciolisce fisicamente l'immagine
             Image nuovaImg = img.getScaledInstance(larghezzaScalata, altezzaScalata, Image.SCALE_SMOOTH);
             carta.setIcon(new ImageIcon(nuovaImg));
         }
         return carta;
     }
     
+    /**
+     * crea la carta rimpicciolita in caso di split
+     * @param nomeCarta
+     * @return
+     */
     private JLabel creaLabelCartaPiccola(String nomeCarta) {
         JLabel carta = new JLabel("", SwingConstants.CENTER);
         String path = nomeCarta.equals("[CARTA COPERTA]") ? "images/retro.png" : "images/" + nomeCarta.replace(" ", "_") + ".png";
@@ -894,36 +923,34 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         return carta;
     }
     
-    // pannello per visualizzazione fiches sovrapposte
+    //pannello per visualizzazione fiches sovrapposte
     private JPanel creaPannelloFiches(int totale, boolean piccole) {
-        // Contenitore principale (Fiches a sinistra, Testo a destra)
+        //contenitore principale
         JPanel container = new JPanel(new FlowLayout(FlowLayout.CENTER, 5, 0));
         container.setOpaque(false);
 
         int size = piccole ? 30 : 50;
-        // 8 pixel di spazio per le piccole, 12 o 14 pixel per le grandi!
+        //8 pixel di spazio per le piccole, 12 o 14 pixel per le grandi!
         int yOffset = piccole ? 8 : 12;
 
-        // 1. Calcoliamo quante fiches servono
+        //calcoliamo quante fiches servono
         int resto = totale;
         int[] valori = {500, 250, 100, 50};
         String[] files = {"chipPurple.png", "chipGreen.png", "chipBlue.png", "chipBlack.png"};
 
-        // Salviamo le immagini pronte da disegnare
-        java.util.List<Image> fichesDaDisegnare = new java.util.ArrayList<>();
+        //salviamo le immagini pronte da disegnare
+        List<Image> fichesDaDisegnare = new ArrayList<>();
 
-        // ==========================================
-        // CARICAMENTO INTELLIGENTE DALLA CACHE
-        // ==========================================
+        //usiamo la cache per velocizzare la creazione delle immagini
         for (int i = 0; i < valori.length; i++) {
             while (resto >= valori[i]) {
                 resto -= valori[i];
                 String nomeFile = files[i];
                 
-                // Scegliamo in quale scatola cercare in base alla grandezza
-                java.util.Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
+                //scegliamo in quale scatola cercare in base alla grandezza
+                Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
                 
-                // Se l'immagine NON c'è nella memoria, la peschiamo dal disco e la rimpiccioliamo (lo fa 1 volta sola!)
+                //se l'immagine NON c'è nella memoria, la peschiamo dal disco e la rimpiccioliamo
                 if (!cacheGiusta.containsKey(nomeFile)) {
                     ImageIcon icona = new ImageIcon("images/" + nomeFile);
                     if (icona.getIconWidth() != -1) {
@@ -932,22 +959,18 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                     }
                 }
                 
-                // Ora peschiamo l'immagine direttamente dalla RAM (è istantaneo, zero sfarfallio!)
+                //ora peschiamo l'immagine direttamente dalla RAM
                 if (cacheGiusta.containsKey(nomeFile)) {
                     fichesDaDisegnare.add(cacheGiusta.get(nomeFile));
                 }
             }
         }
         
-        // ==========================================
-        // GESTIONE "SPICCIOLI" (Resto < 50)
-        // ==========================================
-        // Se avanza un resto che è più piccolo della nostra fiche minima (es. 25$, 30$),
-        // stampiamo un'ultima fiche (la più piccola che abbiamo, in questo caso files[3]) per rappresentarlo visivamente.
+        //se il resto è minore di 50 dsegnamo comunque la fiche nera 
         if (resto > 0) {
-            String nomeFile = files[files.length - 1]; // Prende l'ultima fiche dell'array (chipBlack.png)
+            String nomeFile = files[files.length - 1]; //prende l'ultima fiche dell'array (chipBlack.png)
             
-            java.util.Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
+            Map<String, Image> cacheGiusta = piccole ? cacheFichesPiccole : cacheFichesGrandi;
             
             if (!cacheGiusta.containsKey(nomeFile)) {
                 ImageIcon icona = new ImageIcon("images/" + nomeFile);
@@ -962,10 +985,10 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             }
         }
 
-        // 2. Calcoliamo l'altezza TOTALE esatta della pila (non taglierà mai niente!)
+        //calcoliamo l'altezza TOTALE esatta della pila
         int altezzaPila = fichesDaDisegnare.isEmpty() ? size : size + ((fichesDaDisegnare.size() - 1) * yOffset);
 
-        // 3. LA MAGIA: Il pannello che si dipinge da solo
+        //pannello per la creazione dello stack di fiches
         JPanel panelStack = new JPanel() {
             @Override
             protected void paintComponent(Graphics g) {
@@ -993,7 +1016,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         };
         panelStack.setOpaque(false);
 
-        //Il testo con il totale
+        //il testo con il totale
         JLabel lblTesto = new JLabel(totale + "$");
         lblTesto.setForeground(new Color(255, 215, 0));
         lblTesto.setFont(new Font(FONT_GIOCO, Font.BOLD, piccole ? 14 : 18));
@@ -1003,6 +1026,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
 
         return container;
     }
+    
     
     private JButton creaBottoneFiche(String nomeFile, int valore) {
         JButton btn = new JButton();
@@ -1032,12 +1056,13 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
                 }
             }
         } catch (Exception e) {
-            // Se per qualche motivo fallisce, userà il tema di base
+            //se per qualche motivo fallisce, userà il tema di base
         }
 
         SwingUtilities.invokeLater(() -> avviaSchermataDiLogin());
     }
 
+    //frame di login
     private static void avviaSchermataDiLogin() {
         JFrame loginFrame = new JFrame();
         loginFrame.setSize(800, 700); 
@@ -1049,7 +1074,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
             Image bgImage;
             {
                 try {
-                    java.io.File fileImmagine = new java.io.File("images/sfondo.jpg");
+                    File fileImmagine = new File("images/sfondo.jpg");
                     if (fileImmagine.exists()) bgImage = javax.imageio.ImageIO.read(fileImmagine);
                 } catch (Exception ex) { }
             }
@@ -1078,7 +1103,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         backgroundPanel.addMouseListener(dragger);
         backgroundPanel.addMouseMotionListener(dragger);
 
-        // tasto chiudi
+        //anche qui abbiamo tolto la striscia di windows e abbiamo inserito una X rossa
         JButton btnClose = new JButton("X");
         btnClose.setBounds(750, 10, 40, 40); 
         btnClose.setFont(new Font(FONT_GIOCO, Font.BOLD, 20));
@@ -1092,7 +1117,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         Color colorOro = new Color(255, 191, 0); 
         Color colorBgInput = new Color(10, 10, 10, 210); 
 
-        // --- NOME GIOCATORE ---
+        //field del nome giocatore
         JTextField txtNick = new JTextField("INSERISCI NICKNAME");
         txtNick.setBounds(260, 530, 280, 40);
         txtNick.setFont(new Font("Georgia", Font.BOLD, 16));
@@ -1147,7 +1172,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         });
         backgroundPanel.add(txtIp);
 
-        // bottone start serve per avviare la partita
+        //bottone start serve per avviare la partita
         JButton btnStart = new JButton("START GAME") {
             @Override
             protected void paintComponent(Graphics g) {
@@ -1199,7 +1224,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         });
         backgroundPanel.add(btnStart);
         
-        // pannello informativo
+        //pannello informativo
         JPanel pannelloInfo = new JPanel();
         pannelloInfo.setLayout(new BorderLayout());
         pannelloInfo.setBounds(10, 55, 420, 230);
@@ -1226,7 +1251,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
         pannelloInfo.add(txtSpiegazione, BorderLayout.CENTER);
         backgroundPanel.add(pannelloInfo);
 
-        // tasto info
+        //tasto info
         JButton btnInfo = new JButton("?");
         btnInfo.setBounds(10, 10, 40, 40); 
         btnInfo.setFont(new Font("Georgia", Font.BOLD, 22));
@@ -1264,7 +1289,7 @@ public class BlackjackGUI extends JFrame implements GameUpdateListener {
     }
 
     /**
-	 * Questo metodo gestisce la logica di avvio del gioco in base all'IP inserito:
+	 * questo metodo gestisce la logica di avvio del gioco in base all'IP inserito:
 	 * - Se l'IP è "localhost", prova a connettersi al server locale. Se non trova un server attivo, lo avvia lui stesso e si connette come Host.
 	 * - Se l'IP è diverso, si connette come Client al server remoto specificato.
 	 */
